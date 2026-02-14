@@ -1,0 +1,19 @@
+{
+  "name": "synaptic",
+  "version": "0.1.0",
+  "description": "Persistent local memory for Claude Code — cross-session context recall, BM25 search, zero cloud",
+  "type": "module",
+  "main": "build/index.js",
+  "scripts": {
+    "build": "tsc",
+    "rebuild-index": "node build/scripts/rebuild-index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.4",
+    "typescript": "^5.7.3"
+  }
+}

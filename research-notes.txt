@@ -1,0 +1,813 @@
+================================================================================
+CLAUDE CONTEXT TOOL — COMPLETE RESEARCH NOTES
+================================================================================
+Date: 2026-02-14
+Session: Claude Code research session on persistent context/memory for AI coding
+================================================================================
+
+TABLE OF CONTENTS
+1. Project Goal
+2. Problem Statement
+3. Existing Tools Analyzed (5 repos + OpenClaw)
+4. Detailed Analysis Per Tool
+5. Feature Comparison Matrix
+6. Security & Trust Analysis
+7. Unique Features Worth Replicating
+8. Proposed Architecture for Custom Build
+9. Claude Code Built-in Capabilities
+10. Links & References
+
+================================================================================
+1. PROJECT GOAL
+================================================================================
+
+Build a local-only, zero-cloud-dependency, sandboxed persistent context/memory
+system for Claude Code that combines the best features from existing tools:
+
+- Automatic context persistence across sessions
+- Semantic + keyword hybrid search over past work
+- Memory decay and consolidation (prevent stale context)
+- Pre-compaction auto-save (don't lose context when window compresses)
+- Git-aware context (commit history as searchable memory)
+- Error pattern learning (remember fixes for recurring errors)
+- No external data transmission — everything stays local
+
+The system should be implemented as a combination of:
+- Claude Code hooks (for event-driven automation)
+- A local MCP server (for search/retrieval tools)
+- Markdown files as source of truth (human-readable, auditable)
+- SQLite + embeddings for fast semantic search
+
+================================================================================
+2. PROBLEM STATEMENT
+================================================================================
+
+Claude Code's current context limitations:
+- Each new session starts fresh (only CLAUDE.md + auto memory carry over)
+- Auto memory is limited to ~200 lines in MEMORY.md
+- Context compaction (summarization) loses detail during long sessions
+- No semantic search over past sessions
+- No automatic memory — user must manually say "remember this"
+- No memory decay — old context never gets cleaned up
+- No error pattern learning
+- Git history is available but not proactively indexed
+
+The user initially explored OpenClaw as a solution but discovered:
+- OpenClaw requires broad system permissions (messaging, email, calendar)
+- Cisco security researchers found data exfiltration in third-party skills
+- It's designed as a personal life assistant, not a coding tool
+- The security model is fundamentally incompatible with sandboxed operation
+
+The user then explored MCP memory servers but found:
+- No formal vetting/security audit process for MCP servers
+- Some (ContextStream, Mem0) phone home to cloud services
+- Others are local-first but still third-party code
+- Best approach: build our own, taking the best ideas from each
+
+================================================================================
+3. EXISTING TOOLS ANALYZED
+================================================================================
+
+Six tools/repos were thoroughly analyzed:
+
+A. MCP Memory Keeper     — https://github.com/mkreyman/mcp-memory-keeper
+B. Heimdall MCP Server   — https://github.com/lcbcFoo/heimdall-mcp-server
+C. ContextStream MCP     — https://github.com/contextstream/mcp-server
+D. mcp-mem0              — https://github.com/coleam00/mcp-mem0
+E. mcp-memory-service    — https://github.com/doobidoo/mcp-memory-service
+F. OpenClaw Memory       — https://github.com/openclaw/openclaw (memory subsystem)
+
+================================================================================
+4. DETAILED ANALYSIS PER TOOL
+================================================================================
+
+--------------------------------------------------------------------------------
+A. MCP MEMORY KEEPER (mkreyman)
+--------------------------------------------------------------------------------
+
+Architecture:
+- TypeScript MCP server
+- SQLite database with WAL mode at ~/.mcp-data/memory-keeper/
+- Vector embeddings for semantic search
+- Knowledge graph with entity/relationship extraction
+
+Storage:
+- SQLite (context.db, auto-created)
+- Schema: sessions, context items, checkpoints, file changes, monitoring
+- Categories: task, decision, progress, note
+- Priority-based retention
+
+Tools Exposed (configurable profiles):
+- Full: 38 tools | Standard: 22 tools | Minimal: 8 tools
+- Core: session_start, save, get, search, checkpoint, restore, diff,
+  timeline, export, import, git_commit, cache_file
+
+Unique Features:
+*** SESSION BRANCHING — Create branches to explore alternatives ***
+  - Configurable copy depth (shallow or deep)
+  - Merge strategies: keep_newest, keep_current, keep_source
+  - Conflict resolution built in
+- Git integration (auto-derives channels from branch names)
+- File content caching with SHA-256 change detection
+- Multi-agent analysis (specialized analyzer/synthesizer agents)
+- Parallel session support (multiple Claude sessions sharing context)
+- Export/import as JSON for backup and sharing
+- Smart compaction: auto-checkpoints before context limit
+
+Search:
+- Full-text search across all context
+- Vector embeddings for semantic search
+- Regex pattern filtering
+- Time-based and category/priority filtering
+
+Phones Home: NO — completely local
+Dependencies: ~20 (MCP SDK, better-sqlite3, TypeScript)
+Code Size: Est. 2,000-5,000 lines core logic
+License: MIT
+
+Security Concerns:
+- No encryption at rest
+- No access control/authentication
+- No audit logging
+- 45% of MCP servers have command injection vulnerabilities (ecosystem stat)
+- Input validation module exists (positive)
+
+--------------------------------------------------------------------------------
+B. HEIMDALL MCP SERVER (lcbcFoo)
+--------------------------------------------------------------------------------
+
+Architecture:
+- Python 3.11+ MCP server
+- Three-layer storage: Qdrant vectors + SQLite persistence + Dual memory
+- ONNX-based local embeddings (Sentence-BERT all-MiniLM-L6-v2, 384 dims)
+- Apache 2.0 license, v0.3.7
+
+Storage — Three-Layer Architecture:
+  Layer 1: Qdrant Vector DB
+    - 3-tier hierarchical collections:
+      L0 (Concepts): Abstract general knowledge
+      L1 (Contexts): Mid-level with spatial relationships
+      L2 (Episodes): Specific experiences with full details
+    - Project isolation: {repo_name}_{8-char-hex-hash}
+
+  Layer 2: SQLite Relational
+    - Migration-based schema
+    - Memories, connections, tags, access history, embeddings
+    - JSON-serialized embeddings and cognitive dimensions
+
+  Layer 3: Episodic/Semantic Dual Store
+    - Episodic: Fast decay (0.1/time unit), 30-day max retention
+    - Semantic: Slow decay (0.01/time unit), unlimited retention
+    - Auto-consolidation: episodic → semantic when access patterns qualify
+
+Tools Exposed (6 primary):
+- store_memory(text, context, importance, tags, hierarchy_level, memory_type)
+- recall_memories(query, memory_type, limit)
+- session_lessons(lesson_content, lesson_type, importance, context)
+- memory_status(detailed)
+- delete_memory(memory_id, dry_run)
+- delete_memories_by_tags(tags, dry_run)
+
+Unique Features:
+*** EPISODIC → SEMANTIC MEMORY CONSOLIDATION ***
+  - Mirrors human cognition
+  - Episodic memories auto-promote to semantic when:
+    - Access frequency exceeds threshold
+    - Recency score remains strong (7-day half-life)
+    - Access distribution is consistent (not one-time)
+    - Age meets minimum consolidation threshold
+
+*** THREE-TIER HIERARCHY (L0/L1/L2) ***
+  - Concepts (abstract) → Contexts (relational) → Episodes (specific)
+  - Enables retrieval at appropriate specificity levels
+
+*** COGNITIVE DIMENSION EXTRACTION ***
+  - Emotional (4 dims): frustration, satisfaction, curiosity, stress
+  - Temporal (3 dims): urgency, deadline_pressure, time_context
+  - Contextual (6 dims): work_setting, problem_domain, collaboration_style
+  - Social (3 dims): collaboration_intensity, support_seeking, interaction_freq
+  - Pattern matching + NRC Emotion Lexicon (rule-based, no extra ML)
+
+*** GIT-AWARE INDEXING ***
+  - Auto-parses commit history into memories
+  - File co-change pattern detection (4-hour window)
+  - Author collaboration patterns
+  - Hotspot detection (frequently modified code)
+
+*** CONNECTION GRAPH WITH DECAY ***
+  - Memories are not isolated — they have relationships
+  - Co-change connections, author collaboration, semantic similarity
+  - Connection strength degrades over time
+  - Enables multi-hop retrieval
+
+- Spreading activation search (BFS through connection graph)
+- Dry-run preview for all deletions
+- File monitoring daemon (~20MB lightweight subprocess)
+- ONNX Runtime for CPU-optimized local inference
+
+Search:
+- Cosine similarity on 384-dim vectors
+- Semantic fusion: 384 semantic dims + 16 cognitive dims = 400 total
+- Recency-weighted scoring
+- Spreading activation through connection graph
+- Multi-stage fallback: tags → activation → vector similarity
+
+Phones Home: NO — all local (Qdrant on localhost:6333)
+Dependencies: 84 (18 direct, 66 transitive) — onnxruntime, spacy, qdrant-client
+Code Size: ~400-500KB core logic (~297KB in 10 main modules)
+Security: Strong input validation, path traversal protection, no telemetry
+
+Security Assessment:
+- Strong: Path traversal protection, commit data sanitization, model validation
+- Moderate: SQLite file permissions OS-dependent, no encryption at rest
+- Limited: No user authentication, no audit logging
+- Overall: GOOD for local development use
+
+--------------------------------------------------------------------------------
+C. CONTEXTSTREAM MCP SERVER
+--------------------------------------------------------------------------------
+
+*** DISQUALIFIED — SENDS EVERYTHING TO CLOUD ***
+
+Architecture:
+- TypeScript thin client → ContextStream cloud API (api.contextstream.io)
+- All storage, search, embeddings happen server-side
+- Only 3 production dependencies (MCP SDK, ignore, zod)
+
+What It Sends to Cloud:
+- Source code files (indexed, up to 1MB each)
+- Full conversation transcripts with timestamps
+- Individual user/assistant exchanges
+- Bash command execution data (commands, output, exit codes, errors)
+- Web browsing/research (URLs, search queries, results)
+- File read/write patterns (up to 20 per session)
+- Git metadata (branch, commits, timestamps)
+- Memory events (errors, tasks, lessons, decisions)
+
+Tools: ~120 across 10 categories (session, search, memory, knowledge, graph,
+  media, workspace, project, AI, Notion)
+
+Unique Features Worth Noting (for replication):
+*** ERROR PATTERN LEARNING ***
+  - on-bash.ts analyzes shell errors against pattern library
+  - Creates "lessons" with suggested guidance
+  - Surfaces fixes automatically on similar errors
+  - Uses importance tagging (high/medium/low)
+
+*** REAL-TIME FILE INDEXING HOOKS ***
+  - post-write.ts auto-indexes on file write
+  - No manual "index" commands needed
+  - 2000-file auto-index cap
+
+*** MULTI-EDITOR HOOK SYSTEM ***
+  - Works with Claude Code, Cursor, VS Code, Cline, Roo, Kilo, Windsurf
+  - Unified Node.js-based hook system
+
+- Token budget awareness and savings estimation
+- Dependency graph analysis
+- Team knowledge fusion (Slack, GitHub, Notion)
+
+Phones Home: YES — everything goes to api.contextstream.io
+DO NOT USE for privacy-sensitive work.
+
+--------------------------------------------------------------------------------
+D. MCP-MEM0 (coleam00)
+--------------------------------------------------------------------------------
+
+Architecture:
+- Python MCP server, ~200 lines core logic
+- Uses Mem0 SDK → sends to api.mem0.ai
+- PostgreSQL + pgvector via Supabase
+- Template/reference implementation
+
+Tools (3 only):
+- save_memory(input)
+- get_all_memories(input)
+- search_memories(input)
+
+Search: Vector-only via Mem0 embeddings (text-embedding-3-small or nomic-embed-text)
+No hybrid search, no BM25.
+
+Phones Home: YES — all memories sent to Mem0 API
+No memory management logic, no consolidation, no summarization.
+Dependencies: ~70 (Mem0 SDK, psycopg2, qdrant-client, openai, sqlalchemy)
+
+Assessment: Simple template, not suitable for privacy-focused use.
+
+--------------------------------------------------------------------------------
+E. MCP-MEMORY-SERVICE (doobidoo)
+--------------------------------------------------------------------------------
+
+Architecture:
+- Python MCP server, ~15,000+ lines
+- THREE storage backends:
+  1. SQLite-vec (local, default) — ~5ms reads
+  2. Cloudflare D1 (cloud) — multi-device sync
+  3. Hybrid — SQLite local + async Cloudflare sync
+- ONNX embeddings (bge-small-en-v1.5, 384 dims, local, no API)
+- FastAPI web dashboard at localhost:8000
+
+Tools (12+):
+- memory_store, memory_search, memory_list, memory_delete
+- memory_update, memory_consolidate, memory_retrieve
+- health, cache_stats
+- Plus 7+ MCP resources and guided prompts
+
+Unique Features:
+*** DREAM-INSPIRED CONSOLIDATION ***
+  - Background process that periodically:
+    - Decays old memories based on access frequency
+    - Discovers associations between memories
+    - Clusters related concepts
+    - Archives weak memories (not deleted, hidden from search)
+  - Runs daily/weekly/monthly or 24/7
+  - 4-6 minutes for ~2,500 memories
+
+*** HYBRID SEARCH (BM25 + Vector) ***
+  - BM25 keyword search via SQLite FTS5
+  - Vector similarity via cosine distance
+  - Reciprocal Rank Fusion combining both
+  - Natural language time queries ("last week", "3 days ago")
+
+*** KNOWLEDGE GRAPH ***
+  - D3.js interactive visualization
+  - Typed relationships: causes, fixes, supports, contradicts, related
+  - 5 base memory types + 21 subtypes
+
+- Web dashboard (8 tabs, full management UI)
+- OAuth 2.1 authentication
+- Document ingestion (PDF, TXT, MD, JSON)
+- 100% test coverage (1,161 passing tests)
+- Integrity monitoring (SQLite corruption detection)
+- Offline-first — works completely offline in SQLite mode
+
+Search:
+- BM25 + vector hybrid with Reciprocal Rank Fusion
+- ONNX local embeddings (no API calls)
+- Configurable result ranking
+- Temporal filtering with natural language
+
+Phones Home: NO by default (SQLite mode). Optional Cloudflare sync in hybrid mode.
+Dependencies: 50-70 (PyTorch is heavy ~2GB, sentence-transformers)
+Code Size: ~15,000+ lines production code
+Security: OAuth 2.1, RBAC, audit logging, timing attack patches, HIPAA-ready
+License: (check repo)
+
+Concerns:
+- PyTorch dependency is large attack surface
+- Wide-open CORS in default setup (allow_origins=["*"])
+- Web dashboard adds attack surface
+
+--------------------------------------------------------------------------------
+F. OPENCLAW MEMORY SYSTEM
+--------------------------------------------------------------------------------
+
+Architecture:
+- File-first: Markdown is source of truth, database is derived
+- Storage: ~/.openclaw/workspace/MEMORY.md + memory/YYYY-MM-DD.md
+- SQLite index at ~/.openclaw/memory/{agentId}.sqlite
+- sqlite-vec extension for vector operations
+
+Chunking:
+- ~400 tokens per chunk, 80-token overlap (sliding window)
+- Line-aware processing for precise source attribution
+
+Embedding Models (auto-selection priority):
+1. Local: node-llama-cpp with GGUF models (ggml-org/embedding-gemma-300m-qat-q8_0)
+2. Remote: OpenAI text-embedding-3-small (8192 token max)
+3. Remote: Google Gemini gemini-embedding-001
+4. Remote: Voyage
+5. Fallback: BM25-only mode
+
+Search:
+*** HYBRID SEARCH (BM25 + VECTOR) ***
+  - BM25 keyword via FTS5 (exact tokens, IDs, env vars)
+  - Vector via cosine similarity (paraphrases, semantic)
+  - Scoring: finalScore = 0.7 × vectorScore + 0.3 × textScore
+  - Candidate multiplier of 4 for better coverage
+
+Unique Features:
+*** SILENT PRE-COMPACTION FLUSH ***
+  - When tokens approach limit: contextWindow - reserveTokens - softThreshold
+  - Fires silent agentic turn: "Write lasting notes to memory/YYYY-MM-DD.md"
+  - Model responds NO_REPLY if nothing to save
+  - Tracks memoryFlushCompactionCount to prevent double-flush
+  - BEST feature across all repos — ensures no context loss
+
+*** TIERED FILE-FIRST STORAGE ***
+  - MEMORY.md: Permanent facts, preferences, conventions (curated)
+  - memory/YYYY-MM-DD.md: Daily running context (append-only)
+  - Human-readable, auditable, no vendor lock-in
+  - MEMORY.md loads into system prompt at session start
+  - Daily logs loaded on demand (today + yesterday for recency)
+
+*** PRIVACY BY CONTEXT ***
+  - MEMORY.md loads ONLY in private sessions
+  - Never exposed in group contexts (Slack, Discord, WhatsApp)
+  - Critical for multi-channel deployments
+
+*** QMD BACKEND (Experimental) ***
+  - Query-Memory-Document: local-first sidecar via Bun + node-llama-cpp
+  - Combines BM25 + vector + LLM reranking
+  - Auto-downloads GGUF models from HuggingFace
+  - Sandboxed in XDG home: ~/.openclaw/agents/<agentId>/qmd/
+  - Session transcript indexing (opt-in)
+  - Falls back to SQLite if unavailable
+
+*** GRACEFUL DEGRADATION ***
+  - sqlite-vec unavailable → JavaScript cosine similarity
+  - Local embeddings fail → remote providers
+  - All embeddings fail → BM25-only mode
+  - QMD fails → SQLite
+
+Memory Decision Making:
+- Explicit: agents use memory_store tool with confidence/importance metadata
+- Categories: critical (permanent), high (major decisions), normal, low (temp)
+- Tool: memory_store(content, category, confidence 0-1, importance 0-1, decayDays, tags)
+- Limitation: stale facts compete equally with recent ones (no temporal weighting)
+
+Phones Home: NO (local mode). Remote embeddings optional.
+Daily Log Format: memory/YYYY-MM-DD.md with tasks, decisions, notes
+
+================================================================================
+5. FEATURE COMPARISON MATRIX
+================================================================================
+
+Feature              | MemKeeper | Heimdall | CtxStream | Mem0  | MemSvc | OpenClaw
+---------------------|-----------|----------|-----------|-------|--------|--------
+Local storage        | Yes       | Yes      | NO        | Opt.  | Yes    | Yes
+Phones home          | No        | No       | YES       | YES   | No*    | No
+Semantic search      | Basic     | Cosine++ | Backend   | ONNX  | ONNX   | Hybrid
+Keyword search (BM25)| Full-text | No       | Yes       | FTS5  | FTS5   | FTS5
+Hybrid search        | No        | No       | Yes       | YES   | YES    | YES
+Memory decay         | No        | YES      | No        | YES   | Dream  | No
+Auto-consolidation   | No        | Ep→Sem   | No        | Dream | Dream  | No
+Pre-compact save     | Checkpoint| No       | Transcript| No    | No     | YES
+Knowledge graph      | Yes       | YES      | Deps      | D3.js | D3.js  | No
+Git awareness        | Branches  | FULL     | Metadata  | No    | No     | No
+Session branching    | YES       | No       | No        | No    | No     | No
+Cognitive dimensions | No        | YES      | No        | No    | No     | No
+Memory hierarchy     | Cat/Pri   | L0/L1/L2 | Events    | Types | 5+21   | 2-tier
+Error learning       | No        | No       | YES       | No    | No     | No
+File monitoring      | SHA-256   | Daemon   | Post-write| No    | No     | Watcher
+Offline              | Yes       | Yes      | NO        | Yes   | Yes    | Yes
+Web dashboard        | No        | No       | No        | No    | YES    | No
+OAuth/Auth           | No        | No       | API key   | API   | OAuth  | No
+Encryption at rest   | No        | No       | TLS       | ?     | No     | No
+Dry-run deletes      | No        | YES      | No        | No    | No     | No
+Multi-agent          | YES       | No       | No        | No    | No     | No
+
+* MemSvc = mcp-memory-service; No* = no by default, optional Cloudflare sync
+
+================================================================================
+6. SECURITY & TRUST ANALYSIS
+================================================================================
+
+IMMEDIATELY DISQUALIFIED:
+- ContextStream: Sends ALL code, conversations, bash output, web browsing to cloud
+- mcp-mem0: Sends all memories to Mem0 API by default
+
+SAFE FOR LOCAL USE (no external transmission):
+- MCP Memory Keeper: Local SQLite, no telemetry, MIT license
+- Heimdall: Local Qdrant+SQLite, no telemetry, Apache 2.0
+- mcp-memory-service: Local SQLite by default, optional cloud, OAuth 2.1
+- OpenClaw memory: Local markdown+SQLite (but OpenClaw itself has other risks)
+
+GENERAL MCP SECURITY CONCERNS:
+- 45% of surveyed MCP servers contain command injection vulnerabilities
+- No formal vetting or certification process for MCP servers
+- No audit logging in MCP specification
+- Tool poisoning: malicious instructions in tool metadata
+- Persistent memory can be tainted by compromised agents
+- No encryption at rest in any local implementation
+
+OUR ADVANTAGE:
+- Building our own means zero third-party trust required
+- Every line of code is auditable
+- No dependencies on external services
+- Can add encryption at rest if needed
+- Hooks run within Claude Code's sandbox
+
+================================================================================
+7. UNIQUE FEATURES WORTH REPLICATING
+================================================================================
+
+TIER 1 — MUST HAVE:
+
+1. SILENT PRE-COMPACTION FLUSH (from OpenClaw)
+   - Use Claude Code's PreCompact hook or Stop hook
+   - Before context compaction, auto-save important context to markdown
+   - Prevents the #1 complaint: losing context during long sessions
+   - Implementation: Hook on PreCompact event, script saves conversation summary
+
+2. HYBRID SEARCH: BM25 + VECTOR (from OpenClaw + Memory Service)
+   - BM25 for exact matches (function names, IDs, env vars, error codes)
+   - Vector for semantic matches (paraphrases, related concepts)
+   - Scoring: finalScore = 0.7 * vectorScore + 0.3 * textScore
+   - Use SQLite FTS5 for BM25, sqlite-vec for vectors
+   - Fallback chain: hybrid → vector-only → BM25-only → grep
+
+3. MEMORY DECAY + CONSOLIDATION (from Heimdall + Memory Service)
+   - Episodic memories: fast decay, 30-day max
+   - Semantic memories: slow decay, permanent
+   - Auto-promote frequently accessed episodic → semantic
+   - Background consolidation: decay, associate, cluster, archive
+   - Prevents stale context from polluting searches
+
+4. MARKDOWN-FIRST STORAGE (from OpenClaw)
+   - MEMORY.md: permanent facts, preferences, architecture decisions
+   - context/YYYY-MM-DD.md: daily session logs
+   - Human-readable, git-friendly, auditable
+   - SQLite index is derived (can be rebuilt from markdown)
+
+5. GIT LOG AS CONTEXT (from Heimdall)
+   - Parse recent commits into searchable memories
+   - Detect file co-change patterns
+   - Surface relevant commit context during coding
+   - No extra effort from user — git history already exists
+
+TIER 2 — SHOULD HAVE:
+
+6. THREE-TIER MEMORY HIERARCHY (from Heimdall)
+   - L0 Concepts: "we use JWT for auth" (abstract)
+   - L1 Contexts: "auth middleware connects to user service" (relational)
+   - L2 Episodes: "fixed token expiry bug on Feb 12" (specific)
+   - Tag-based: concept/context/episode
+
+7. ERROR PATTERN LEARNING (from ContextStream)
+   - Hook on PostToolUseFailure for bash errors
+   - Store error + fix as a "lesson"
+   - On similar error, surface the lesson automatically
+   - Simple pattern matching, no ML needed
+
+8. SESSION HANDOFF NOTES (custom)
+   - On session end, auto-generate summary of what was done
+   - Save to context/YYYY-MM-DD.md
+   - Next session loads recent handoff for continuity
+
+9. TEMPORAL WEIGHTING (missing from all tools)
+   - Prefer recent memories over old ones in search results
+   - Exponential decay on search relevance
+   - Configurable half-life (e.g., 7 days)
+
+TIER 3 — NICE TO HAVE:
+
+10. SESSION BRANCHING (from Memory Keeper)
+    - Explore alternative approaches without polluting main context
+    - Merge useful discoveries back
+    - Useful for experimental coding sessions
+
+11. KNOWLEDGE GRAPH (from Heimdall + Memory Service)
+    - Track relationships between memories
+    - Types: causes, fixes, supports, contradicts, related
+    - Enables multi-hop retrieval
+
+12. COGNITIVE DIMENSIONS (from Heimdall)
+    - Track emotional/temporal/contextual metadata
+    - Urgency, deadline pressure, frustration level
+    - Improves retrieval relevance
+
+13. FILE CHANGE MONITORING (from Memory Keeper + OpenClaw)
+    - Watch for file changes and auto-index
+    - SHA-256 dedup to avoid re-indexing unchanged files
+
+================================================================================
+8. PROPOSED ARCHITECTURE FOR CUSTOM BUILD
+================================================================================
+
+Name: claude-context-tool (working title)
+
+COMPONENTS:
+
+1. CLAUDE CODE HOOKS (event-driven automation)
+   ├── PreCompact hook → save context summary to markdown
+   ├── PostToolUse (Edit|Write) → index changed files
+   ├── PostToolUseFailure (Bash) → capture error + create lesson
+   ├── Stop hook → generate session handoff note
+   ├── SessionStart hook → inject recent context into prompt
+   └── SessionStart (compact) → re-inject critical memories
+
+2. LOCAL MCP SERVER (search/retrieval tools)
+   ├── context_save(content, type, importance, tags)
+   ├── context_search(query, type_filter, time_filter, limit)
+   ├── context_list(date_range, type)
+   ├── context_status() → memory stats, health
+   ├── context_consolidate() → run decay/cleanup
+   ├── lesson_save(error_pattern, fix, importance)
+   └── lesson_search(error_text) → find matching fixes
+
+3. STORAGE LAYER
+   ├── Markdown files (source of truth):
+   │   ├── MEMORY.md — permanent facts, preferences
+   │   ├── context/YYYY-MM-DD.md — daily session logs
+   │   ├── lessons/ — error patterns and fixes
+   │   └── git-context/ — parsed commit memories
+   ├── SQLite database (derived index):
+   │   ├── FTS5 table for BM25 keyword search
+   │   ├── Vector table for semantic search (sqlite-vec)
+   │   ├── Memory metadata (type, importance, decay, timestamps)
+   │   ├── Access log (for consolidation decisions)
+   │   └── Relationships (knowledge graph edges)
+   └── Embeddings:
+       ├── Primary: local ONNX model (e.g., all-MiniLM-L6-v2, 384 dims)
+       ├── Fallback: BM25-only if ONNX unavailable
+       └── No external API calls ever
+
+4. BACKGROUND PROCESSES
+   ├── Consolidation: periodic decay + archival (cron or on-demand)
+   ├── Git indexer: parse new commits into memories
+   └── Index rebuilder: regenerate SQLite from markdown if needed
+
+DIRECTORY STRUCTURE:
+
+~/.claude-context/
+├── config.json                    # Configuration
+├── MEMORY.md                      # Permanent curated facts
+├── context/
+│   ├── 2026-02-14.md             # Today's session log
+│   ├── 2026-02-13.md             # Yesterday's log
+│   └── ...
+├── lessons/
+│   ├── bash-errors.md            # Error patterns and fixes
+│   └── build-errors.md
+├── git-context/
+│   └── recent-commits.md         # Parsed git history
+├── db/
+│   ├── context.db                # SQLite index (FTS5 + vectors)
+│   └── context.db-wal            # WAL journal
+└── models/
+    └── all-MiniLM-L6-v2.onnx    # Local embedding model
+
+SEARCH FLOW:
+
+User asks question or starts task
+  → SessionStart hook fires
+  → Hook calls context_search(relevant_query)
+  → MCP server runs hybrid search:
+      1. BM25 keyword search (FTS5) → keyword_results
+      2. Vector similarity search (sqlite-vec) → vector_results
+      3. Reciprocal Rank Fusion: 0.7*vector + 0.3*keyword
+      4. Apply temporal weighting (prefer recent)
+      5. Filter by type/importance if specified
+  → Top N results injected into context
+  → Claude has relevant past context without manual effort
+
+PRE-COMPACTION FLOW:
+
+Context window approaching limit
+  → PreCompact hook fires
+  → Hook extracts:
+      - Active files being worked on
+      - Key decisions made this session
+      - Current task state
+      - Unresolved questions
+  → Saves to context/YYYY-MM-DD.md
+  → After compaction, SessionStart(compact) hook fires
+  → Re-injects critical context from saved file
+
+CONSOLIDATION FLOW (periodic):
+
+Consolidation triggered (daily or on-demand)
+  → Scan all memories older than 7 days
+  → Calculate decay score: strength * exp(-decay_rate * hours)
+  → For each memory:
+      If accessed frequently → promote to MEMORY.md (semantic/permanent)
+      If rarely accessed + old → archive (hidden from search, not deleted)
+      If moderately accessed → keep as-is with reduced strength
+  → Update SQLite index
+  → Log consolidation results
+
+TECHNOLOGY CHOICES:
+
+Language: TypeScript (matches Claude Code ecosystem)
+  - OR Python if ONNX/embedding tooling is easier
+Database: SQLite with sqlite-vec extension
+Search: FTS5 (BM25) + sqlite-vec (cosine similarity)
+Embeddings: ONNX Runtime with all-MiniLM-L6-v2 (384 dims, local)
+Transport: MCP over stdio (standard for Claude Code)
+Config: JSON file in ~/.claude-context/config.json
+
+IMPLEMENTATION PHASES:
+
+Phase 1: Foundation
+- Markdown storage (MEMORY.md + daily logs)
+- Claude Code hooks (PreCompact, Stop, SessionStart)
+- Basic MCP server with save/search/list
+- BM25 search only (no embeddings yet)
+
+Phase 2: Smart Search
+- Add sqlite-vec for vector search
+- Add ONNX embedding model
+- Implement hybrid search (BM25 + vector)
+- Add temporal weighting
+
+Phase 3: Intelligence
+- Memory decay and consolidation
+- Error pattern learning (lessons)
+- Git history indexing
+- Three-tier memory hierarchy
+
+Phase 4: Polish
+- Session branching
+- Knowledge graph relationships
+- Auto-indexing on file changes
+- Dashboard/visualization (optional)
+
+================================================================================
+9. CLAUDE CODE BUILT-IN CAPABILITIES
+================================================================================
+
+What Claude Code already has (no custom build needed):
+
+MEMORY:
+- CLAUDE.md: project-level instructions, loaded every session
+  - Can be committed to git for team sharing
+  - User writes/maintains it manually
+- Auto memory: ~/.claude/projects/<path>/memory/MEMORY.md
+  - Claude writes notes as it works
+  - Loaded into system prompt (~200 line limit)
+  - Persists across sessions
+
+HOOKS (event-driven automation):
+- Available events:
+  SessionStart, UserPromptSubmit, PreToolUse, PermissionRequest,
+  PostToolUse, PostToolUseFailure, Notification, Stop,
+  SubagentStart, SubagentStop, SessionEnd, PreCompact,
+  TeammateIdle, TaskCompleted
+- Configuration: ~/.claude/settings.json or .claude/settings.json
+- Hook scripts receive JSON context via stdin
+- Exit codes: 0 = proceed, 2 = block
+- Async hooks available (run in background)
+- Matchers for filtering (tool names, event types)
+
+MCP SERVERS:
+- Can connect external tools via MCP protocol
+- Configured in settings.json
+- User already has Figma and Webflow connected
+- Our custom tool would be another MCP server
+
+SKILLS:
+- Built-in skill system for specialized tasks
+- Extensible via configuration
+
+CONTEXT COMPACTION:
+- Automatic summarization when context window is full
+- Loses detail — this is the main gap we're solving
+- PreCompact hook available for custom pre-save logic
+
+================================================================================
+10. LINKS & REFERENCES
+================================================================================
+
+REPOS ANALYZED:
+- MCP Memory Keeper: https://github.com/mkreyman/mcp-memory-keeper
+- Heimdall MCP: https://github.com/lcbcFoo/heimdall-mcp-server
+- ContextStream: https://github.com/contextstream/mcp-server
+- mcp-mem0: https://github.com/coleam00/mcp-mem0
+- mcp-memory-service: https://github.com/doobidoo/mcp-memory-service
+- OpenClaw: https://github.com/openclaw/openclaw
+
+OPENCLAW MEMORY DOCS:
+- Memory concepts: https://docs.openclaw.ai/concepts/memory
+- Compaction: https://docs.openclaw.ai/concepts/compaction
+- Memory deep dive: https://medium.com/@shivam.agarwal.in/agentic-ai-openclaw-moltbot-clawdbots-memory-architecture-explained-61c3b9697488
+- Local-first RAG with SQLite: https://www.pingcap.com/blog/local-first-rag-using-sqlite-ai-agent-memory-openclaw/
+- Memory arch discussion: https://github.com/openclaw/openclaw/discussions/6038
+- Memory PR: https://github.com/openclaw/openclaw/pull/3160
+
+MCP SECURITY:
+- MCP security best practices: https://modelcontextprotocol.io/specification/draft/basic/security_best_practices
+- Understanding MCP risks (Datadog): https://www.datadoghq.com/blog/monitor-mcp-servers/
+- MCP security (Microsoft): https://techcommunity.microsoft.com/blog/microsoft-security-blog/understanding-and-mitigating-security-risks-in-mcp-implementations/4404667
+- MCP security risks (Medium): https://medium.com/data-science-collective/mcp-is-a-security-nightmare-heres-how-the-agent-security-framework-fixes-it-fd419fdfaf4e
+- MCP data protection: https://mcpmanager.ai/blog/mcp-data-protection-security/
+
+GENERAL:
+- OpenClaw Wikipedia: https://en.wikipedia.org/wiki/OpenClaw
+- OpenClaw cheatsheet: https://moltfounders.com/openclaw-mega-cheatsheet
+- Best MCP servers 2026: https://www.builder.io/blog/best-mcp-servers-2026
+- Mem0 OpenMemory: https://mem0.ai/openmemory
+- AI memory MCP benchmark: https://aimultiple.com/memory-mcp
+
+EMBEDDING MODELS:
+- all-MiniLM-L6-v2 (384 dims): Standard for local inference
+- bge-small-en-v1.5 (384 dims): Used by mcp-memory-service
+- embedding-gemma-300m-qat-q8_0: Used by OpenClaw (GGUF format)
+- text-embedding-3-small: OpenAI remote (1536 dims)
+
+SQLITE EXTENSIONS:
+- sqlite-vec: https://github.com/asg017/sqlite-vec
+- Hybrid search with SQLite: https://alexgarcia.xyz/blog/2024/sqlite-vec-hybrid-search/index.html
+
+================================================================================
+END OF RESEARCH NOTES
+================================================================================
+
+Next steps:
+1. Decide on language (TypeScript vs Python)
+2. Set up project scaffolding
+3. Implement Phase 1 (markdown storage + hooks + basic MCP server)
+4. Test with Claude Code in sandboxed mode
+5. Iterate through phases 2-4
+
+This document should be the starting point for the next session.
