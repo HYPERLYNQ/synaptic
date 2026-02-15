@@ -268,6 +268,76 @@ export class ContextIndex {
     `);
   }
 
+  getRowidsByIds(ids: string[]): number[] {
+    if (ids.length === 0) return [];
+    return ids.map((id) => {
+      const row = this.db.prepare(
+        "SELECT rowid FROM entries WHERE id = ?"
+      ).get(id) as Record<string, unknown> | undefined;
+      return (row?.rowid as number) ?? -1;
+    });
+  }
+
+  hybridSearch(
+    query: string,
+    embedding: Float32Array,
+    opts: { type?: string; days?: number; limit?: number } = {}
+  ): ContextEntry[] {
+    const limit = opts.limit ?? 20;
+    // Fetch more candidates than needed for RRF merging
+    const candidateLimit = limit * 3;
+
+    // 1. BM25 search
+    const bm25Results = this.search(query, {
+      type: opts.type,
+      days: opts.days,
+      limit: candidateLimit,
+    });
+
+    // 2. Vector search
+    const vecResults = this.searchVec(embedding, candidateLimit);
+
+    // 3. RRF merge
+    const K = 60;
+    const scores = new Map<number, number>(); // rowid -> rrf score
+
+    // Get rowids for BM25 results
+    const bm25Ids = bm25Results.map((e) => e.id);
+    const bm25Rowids = this.getRowidsByIds(bm25Ids);
+
+    bm25Rowids.forEach((rowid, rank) => {
+      scores.set(rowid, (scores.get(rowid) ?? 0) + 1 / (K + rank + 1));
+    });
+
+    vecResults.forEach(({ rowid }, rank) => {
+      scores.set(rowid, (scores.get(rowid) ?? 0) + 1 / (K + rank + 1));
+    });
+
+    // 4. Temporal decay
+    const allRowids = Array.from(scores.keys());
+    const entries = this.getByRowids(allRowids);
+    const entryMap = new Map<number, ContextEntry>();
+
+    // Build rowid -> entry map
+    const rowidLookup = this.getRowidsByIds(entries.map((e) => e.id));
+    entries.forEach((entry, i) => {
+      entryMap.set(rowidLookup[i], entry);
+    });
+
+    const today = new Date();
+    const scored = allRowids.map((rowid) => {
+      const entry = entryMap.get(rowid)!;
+      const entryDate = new Date(entry.date);
+      const ageDays = (today.getTime() - entryDate.getTime()) / (1000 * 60 * 60 * 24);
+      const decay = Math.pow(0.5, ageDays / 30);
+      return { entry, score: (scores.get(rowid) ?? 0) * decay };
+    });
+
+    // 5. Sort by score descending, return top N
+    scored.sort((a, b) => b.score - a.score);
+    return scored.slice(0, limit).map((s) => s.entry);
+  }
+
   close(): void {
     this.db.close();
   }
