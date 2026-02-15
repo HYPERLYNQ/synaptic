@@ -5,7 +5,7 @@ import { Embedder } from "../storage/embedder.js";
 export const contextSearchSchema = {
   query: z.string().describe("Search query (hybrid semantic + keyword search)"),
   type: z
-    .enum(["decision", "progress", "issue", "handoff", "insight", "reference"])
+    .enum(["decision", "progress", "issue", "handoff", "insight", "reference", "git_commit"])
     .optional()
     .describe("Filter by entry type"),
   days: z
