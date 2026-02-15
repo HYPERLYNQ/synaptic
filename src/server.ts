@@ -7,6 +7,7 @@ import { contextSave, contextSaveSchema } from "./tools/context-save.js";
 import { contextSearch, contextSearchSchema } from "./tools/context-search.js";
 import { contextList, contextListSchema } from "./tools/context-list.js";
 import { contextStatus } from "./tools/context-status.js";
+import { contextArchive, contextArchiveSchema } from "./tools/context-archive.js";
 
 export function createServer(): McpServer {
   ensureDirs();
@@ -60,6 +61,18 @@ export function createServer(): McpServer {
     {},
     async () => {
       const result = contextStatus(index);
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+      };
+    }
+  );
+
+  server.tool(
+    "context_archive",
+    "Bulk-archive entries by ID list. Archived entries are excluded from search/list by default.",
+    contextArchiveSchema,
+    async (args) => {
+      const result = contextArchive(args, index);
       return {
         content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
       };
