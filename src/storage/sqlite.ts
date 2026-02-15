@@ -127,12 +127,20 @@ export class ContextIndex {
     // Create indexes for new columns
     this.db.exec("CREATE INDEX IF NOT EXISTS idx_entries_tier ON entries(tier)");
     this.db.exec("CREATE INDEX IF NOT EXISTS idx_entries_archived ON entries(archived)");
+
+    const hasLabel = columns.some((col) => col.name === "label");
+    if (!hasLabel) {
+      this.db.exec("ALTER TABLE entries ADD COLUMN label TEXT");
+      this.db.exec(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_entries_rule_label ON entries(label) WHERE type = 'rule'"
+      );
+    }
   }
 
   insert(entry: ContextEntry): number {
     const stmt = this.db.prepare(`
-      INSERT OR REPLACE INTO entries (id, date, time, type, tags, content, source_file, tier, access_count, last_accessed, pinned, archived)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT OR REPLACE INTO entries (id, date, time, type, tags, content, source_file, tier, access_count, last_accessed, pinned, archived, label)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     stmt.run(
       entry.id,
@@ -146,7 +154,8 @@ export class ContextIndex {
       entry.accessCount ?? 0,
       entry.lastAccessed ?? null,
       entry.pinned ? 1 : 0,
-      entry.archived ? 1 : 0
+      entry.archived ? 1 : 0,
+      (entry as any).label ?? null
     );
     const row = this.db.prepare("SELECT last_insert_rowid() as rowid").get() as Record<string, unknown>;
     return row.rowid as number;
@@ -700,6 +709,76 @@ export class ContextIndex {
       "UPDATE patterns SET resolved = 1 WHERE id = ?"
     ).run(patternId);
     return Number(result.changes) > 0;
+  }
+
+  saveRule(label: string, content: string): number {
+    const now = new Date();
+    const date = now.toISOString().slice(0, 10);
+    const time = now.toTimeString().slice(0, 5);
+    const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+
+    // Upsert: clean up old rule with same label (manually sync FTS to avoid trigger issue)
+    const existing = this.db.prepare(
+      "SELECT rowid FROM entries WHERE type = 'rule' AND label = ?"
+    ).get(label) as { rowid: number } | undefined;
+    if (existing) {
+      this.db.prepare("DELETE FROM entries_fts WHERE rowid = ?").run(existing.rowid);
+      this.db.exec("DROP TRIGGER IF EXISTS entries_ad");
+      this.db.prepare("DELETE FROM entries WHERE rowid = ?").run(existing.rowid);
+      this.db.exec(`
+        CREATE TRIGGER entries_ad AFTER DELETE ON entries BEGIN
+          INSERT INTO entries_fts(entries_fts, rowid, content, tags, type)
+          VALUES ('delete', old.rowid, old.content, old.tags, old.type);
+        END
+      `);
+    }
+
+    const stmt = this.db.prepare(`
+      INSERT INTO entries (id, date, time, type, tags, content, source_file, tier, access_count, last_accessed, pinned, archived, label)
+      VALUES (?, ?, ?, 'rule', '', ?, 'rule', 'longterm', 0, NULL, 1, 0, ?)
+    `);
+    stmt.run(id, date, time, content, label);
+    const row = this.db.prepare("SELECT last_insert_rowid() as rowid").get() as Record<string, unknown>;
+    return row.rowid as number;
+  }
+
+  listRules(): Array<ContextEntry & { label: string }> {
+    const rows = this.db.prepare(
+      "SELECT id, date, time, type, tags, content, source_file, tier, access_count, last_accessed, pinned, archived, label FROM entries WHERE type = 'rule' AND archived = 0 ORDER BY date DESC"
+    ).all() as Array<Record<string, unknown>>;
+    return rows.map((row) => ({
+      id: row.id as string,
+      date: row.date as string,
+      time: row.time as string,
+      type: row.type as string,
+      tags: (row.tags as string).split(", ").filter(Boolean),
+      content: row.content as string,
+      sourceFile: row.source_file as string,
+      tier: row.tier as ContextEntry["tier"],
+      accessCount: row.access_count as number,
+      lastAccessed: row.last_accessed as string | null,
+      pinned: !!(row.pinned as number),
+      archived: !!(row.archived as number),
+      label: row.label as string,
+    }));
+  }
+
+  deleteRule(label: string): boolean {
+    const existing = this.db.prepare(
+      "SELECT rowid FROM entries WHERE type = 'rule' AND label = ?"
+    ).get(label) as { rowid: number } | undefined;
+    if (!existing) return false;
+
+    this.db.prepare("DELETE FROM entries_fts WHERE rowid = ?").run(existing.rowid);
+    this.db.exec("DROP TRIGGER IF EXISTS entries_ad");
+    this.db.prepare("DELETE FROM entries WHERE rowid = ?").run(existing.rowid);
+    this.db.exec(`
+      CREATE TRIGGER entries_ad AFTER DELETE ON entries BEGIN
+        INSERT INTO entries_fts(entries_fts, rowid, content, tags, type)
+        VALUES ('delete', old.rowid, old.content, old.tags, old.type);
+      END
+    `);
+    return true;
   }
 
   close(): void {

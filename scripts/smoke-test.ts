@@ -322,6 +322,37 @@ async function main(): Promise<void> {
   assert(status.dateRange !== null, `status.dateRange is not null`);
 
   // -------------------------------------------------------
+  // 10. Test rule CRUD
+  // -------------------------------------------------------
+  console.log("\n[10] Rule CRUD");
+
+  const ruleRowid = index.saveRule("no-emoji", "Never use emoji in commit messages");
+  assert(typeof ruleRowid === "number" && ruleRowid > 0, `saveRule returned rowid ${ruleRowid}`);
+
+  const rules = index.listRules();
+  assert(rules.length === 1, `listRules returns 1 rule (got ${rules.length})`);
+  assert(rules[0].label === "no-emoji", `Rule label is no-emoji`);
+  assert(rules[0].content.includes("emoji"), `Rule content mentions emoji`);
+  assert(rules[0].tier === "longterm", `Rule tier is longterm`);
+  assert(rules[0].pinned === true, `Rule is pinned`);
+
+  // saveRule with same label overwrites (upsert)
+  index.saveRule("no-emoji", "Do not include emoji in any commit messages ever");
+  const rulesAfterUpdate = index.listRules();
+  assert(rulesAfterUpdate.length === 1, `Still 1 rule after upsert (got ${rulesAfterUpdate.length})`);
+  assert(rulesAfterUpdate[0].content.includes("Do not include"), `Rule content was updated`);
+
+  // deleteRule removes it
+  const deleted = index.deleteRule("no-emoji");
+  assert(deleted === true, `deleteRule returned true`);
+  const rulesAfterDelete = index.listRules();
+  assert(rulesAfterDelete.length === 0, `0 rules after delete (got ${rulesAfterDelete.length})`);
+
+  // deleteRule on non-existent returns false
+  const deletedAgain = index.deleteRule("no-emoji");
+  assert(deletedAgain === false, `deleteRule on missing rule returns false`);
+
+  // -------------------------------------------------------
   // Summary
   // -------------------------------------------------------
   index.close();
