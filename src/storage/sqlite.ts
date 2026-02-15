@@ -152,7 +152,7 @@ export class ContextIndex {
 
   search(
     query: string,
-    opts: { type?: string; days?: number; limit?: number } = {}
+    opts: { type?: string; days?: number; limit?: number; includeArchived?: boolean } = {}
   ): ContextEntry[] {
     const limit = opts.limit ?? 20;
     const conditions: string[] = [];
@@ -169,6 +169,10 @@ export class ContextIndex {
     if (opts.days) {
       conditions.push("e.date >= date('now', '-' || ? || ' days')");
       params.push(opts.days);
+    }
+
+    if (!opts.includeArchived) {
+      conditions.push("e.archived = 0");
     }
 
     params.push(limit);
@@ -249,7 +253,7 @@ export class ContextIndex {
     }));
   }
 
-  list(opts: { days?: number; type?: string } = {}): ContextEntry[] {
+  list(opts: { days?: number; type?: string; includeArchived?: boolean } = {}): ContextEntry[] {
     const conditions: string[] = [];
     const params: (string | number)[] = [];
 
@@ -261,6 +265,10 @@ export class ContextIndex {
     if (opts.days) {
       conditions.push("date >= date('now', '-' || ? || ' days')");
       params.push(opts.days);
+    }
+
+    if (!opts.includeArchived) {
+      conditions.push("archived = 0");
     }
 
     const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
@@ -364,7 +372,7 @@ export class ContextIndex {
   hybridSearch(
     query: string,
     embedding: Float32Array,
-    opts: { type?: string; days?: number; limit?: number } = {}
+    opts: { type?: string; days?: number; limit?: number; tier?: string; includeArchived?: boolean } = {}
   ): ContextEntry[] {
     const limit = opts.limit ?? 20;
     // Fetch more candidates than needed for RRF merging
@@ -408,17 +416,30 @@ export class ContextIndex {
     });
 
     const today = new Date();
+    const tierWeight = (tier: string | undefined): number => {
+      switch (tier) {
+        case "longterm": return 1.5;
+        case "ephemeral": return 0.5;
+        default: return 1.0;
+      }
+    };
+
     const scored = allRowids.map((rowid) => {
       const entry = entryMap.get(rowid)!;
       const entryDate = new Date(entry.date);
       const ageDays = (today.getTime() - entryDate.getTime()) / (1000 * 60 * 60 * 24);
       const decay = Math.pow(0.5, ageDays / 30);
-      return { entry, score: (scores.get(rowid) ?? 0) * decay };
+      return { entry, score: (scores.get(rowid) ?? 0) * decay * tierWeight(entry.tier) };
     });
 
-    // 5. Sort by score descending, return top N
-    scored.sort((a, b) => b.score - a.score);
-    const result = scored.slice(0, limit).map((s) => s.entry);
+    // 5. Filter, sort by score descending, return top N
+    const filtered = scored.filter((s) => {
+      if (!opts.includeArchived && s.entry.archived) return false;
+      if (opts.tier && s.entry.tier !== opts.tier) return false;
+      return true;
+    });
+    filtered.sort((a, b) => b.score - a.score);
+    const result = filtered.slice(0, limit).map((s) => s.entry);
     this.bumpAccess(result.map((e) => e.id));
     return result;
   }

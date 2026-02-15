@@ -12,6 +12,11 @@ export const contextListSchema = {
     .enum(["decision", "progress", "issue", "handoff", "insight", "reference", "git_commit"])
     .optional()
     .describe("Filter by entry type"),
+  include_archived: z
+    .boolean()
+    .optional()
+    .default(false)
+    .describe("Include archived entries in results"),
 };
 
 interface GroupedEntries {
@@ -26,10 +31,10 @@ interface GroupedEntries {
 }
 
 export function contextList(
-  args: { days?: number; type?: string },
+  args: { days?: number; type?: string; include_archived?: boolean },
   index: ContextIndex
 ): { groups: GroupedEntries[]; total: number } {
-  const entries = index.list({ days: args.days, type: args.type });
+  const entries = index.list({ days: args.days, type: args.type, includeArchived: args.include_archived });
 
   // Group by date
   const grouped = new Map<string, GroupedEntries>();
