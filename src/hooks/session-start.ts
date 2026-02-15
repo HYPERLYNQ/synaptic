@@ -8,6 +8,8 @@
 import { ContextIndex } from "../storage/sqlite.js";
 import { ensureDirs } from "../storage/paths.js";
 import { runMaintenance } from "../storage/maintenance.js";
+import { Embedder } from "../storage/embedder.js";
+import { contextGitIndex } from "../tools/context-git-index.js";
 
 interface SessionStartInput {
   source: string;
@@ -37,6 +39,14 @@ async function main(): Promise<void> {
   const maintenance = runMaintenance(index);
 
   try {
+    // Auto-index recent git commits (last 24h, silent failure)
+    const embedder = new Embedder();
+    try {
+      await contextGitIndex({ days: 1 }, index, embedder);
+    } catch {
+      // Don't block session start
+    }
+
     // Get recent entries (last 3 days), excluding ephemeral tier
     const recent = index.list({ days: 3 }).filter(e => e.tier !== "ephemeral");
 
