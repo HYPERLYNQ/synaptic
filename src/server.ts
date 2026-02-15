@@ -10,6 +10,9 @@ import { contextStatus } from "./tools/context-status.js";
 import { contextArchive, contextArchiveSchema } from "./tools/context-archive.js";
 import { contextGitIndex, contextGitIndexSchema } from "./tools/context-git-index.js";
 import { contextResolvePattern, contextResolvePatternSchema } from "./tools/context-resolve-pattern.js";
+import { contextSaveRule, contextSaveRuleSchema } from "./tools/context-save-rule.js";
+import { contextDeleteRule, contextDeleteRuleSchema } from "./tools/context-delete-rule.js";
+import { contextListRules } from "./tools/context-list-rules.js";
 
 let _embedder: Embedder;
 
@@ -106,6 +109,42 @@ export function createServer(): McpServer {
     contextResolvePatternSchema,
     async (args) => {
       const result = contextResolvePattern(args, index);
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+      };
+    }
+  );
+
+  server.tool(
+    "context_save_rule",
+    "Save or update a persistent rule by label. Rules are injected every session and always enforced. If a rule with this label exists, it is overwritten.",
+    contextSaveRuleSchema,
+    async (args) => {
+      const result = contextSaveRule(args, index);
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+      };
+    }
+  );
+
+  server.tool(
+    "context_delete_rule",
+    "Delete a persistent rule by its label.",
+    contextDeleteRuleSchema,
+    async (args) => {
+      const result = contextDeleteRule(args, index);
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+      };
+    }
+  );
+
+  server.tool(
+    "context_list_rules",
+    "List all active rules with their labels and content.",
+    {},
+    async () => {
+      const result = contextListRules(index);
       return {
         content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
       };
