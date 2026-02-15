@@ -90,7 +90,7 @@ export class ContextIndex {
   insertVec(entryRowid: number, embedding: Float32Array): void {
     const stmt = this.db.prepare(`
       INSERT INTO vec_entries(rowid, embedding)
-      VALUES (?, ?)
+      VALUES (CAST(? AS INTEGER), ?)
     `);
     stmt.run(entryRowid, new Uint8Array(embedding.buffer));
   }
