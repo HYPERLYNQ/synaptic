@@ -103,6 +103,7 @@ async function main(): Promise<void> {
     }
 
     const entry = appendEntry(content.join("\n"), "handoff", tagList);
+    entry.tier = ContextIndex.assignTier(entry.type);
     const rowid = index.insert(entry);
     const embedding = await embedder.embed(entry.content);
     index.insertVec(rowid, embedding);

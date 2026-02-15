@@ -41,7 +41,8 @@ export async function contextSave(
   let patternId: string | undefined;
   if (args.type === "issue") {
     try {
-      const similar = index.findSimilarIssues(embedding);
+      const similar = index.findSimilarIssues(embedding)
+        .filter(e => e.id !== entry.id);
       if (similar.length >= 2) {
         const allIds = [entry.id, ...similar.map(e => e.id)];
         patternId = index.createOrUpdatePattern(args.content, allIds);
