@@ -5,7 +5,7 @@ import { Embedder } from "../storage/embedder.js";
 export const contextSearchSchema = {
   query: z.string().describe("Search query (hybrid semantic + keyword search)"),
   type: z
-    .enum(["decision", "progress", "issue", "handoff", "insight", "reference", "git_commit"])
+    .enum(["decision", "progress", "issue", "handoff", "insight", "reference", "git_commit", "rule"])
     .optional()
     .describe("Filter by entry type"),
   days: z
@@ -30,10 +30,20 @@ export const contextSearchSchema = {
     .optional()
     .default(false)
     .describe("Include archived entries in results"),
+  mode: z
+    .enum(["fast", "semantic", "hybrid"])
+    .optional()
+    .describe("Search mode: fast (BM25 keyword only), semantic (vector only), hybrid (both). Auto-detects if omitted."),
 };
 
+function autoDetectMode(query: string): "fast" | "hybrid" {
+  const words = query.trim().split(/\s+/);
+  if (words.length <= 3 && !query.includes("?")) return "fast";
+  return "hybrid";
+}
+
 export async function contextSearch(
-  args: { query: string; type?: string; days?: number; limit?: number; tier?: string; include_archived?: boolean },
+  args: { query: string; type?: string; days?: number; limit?: number; tier?: string; include_archived?: boolean; mode?: string },
   index: ContextIndex,
   embedder: Embedder
 ): Promise<{
@@ -47,14 +57,40 @@ export async function contextSearch(
   }>;
   total: number;
 }> {
-  const embedding = await embedder.embed(args.query);
-  const results = index.hybridSearch(args.query, embedding, {
-    type: args.type,
-    days: args.days,
-    limit: args.limit,
-    tier: args.tier,
-    includeArchived: args.include_archived,
-  });
+  const mode = (args.mode as "fast" | "semantic" | "hybrid") ?? autoDetectMode(args.query);
+
+  let results: import("../storage/markdown.js").ContextEntry[];
+
+  if (mode === "fast") {
+    results = index.search(args.query, {
+      type: args.type,
+      days: args.days,
+      limit: args.limit,
+      includeArchived: args.include_archived,
+    });
+    index.bumpAccess(results.map((e) => e.id));
+  } else if (mode === "semantic") {
+    const embedding = await embedder.embed(args.query);
+    const limit = args.limit ?? 20;
+    const vecResults = index.searchVec(embedding, limit * 3);
+    const entries = index.getByRowids(vecResults.map((r) => r.rowid));
+    results = entries.filter((e) => {
+      if (!args.include_archived && e.archived) return false;
+      if (args.tier && e.tier !== args.tier) return false;
+      if (args.type && e.type !== args.type) return false;
+      return true;
+    }).slice(0, limit);
+    index.bumpAccess(results.map((e) => e.id));
+  } else {
+    const embedding = await embedder.embed(args.query);
+    results = index.hybridSearch(args.query, embedding, {
+      type: args.type,
+      days: args.days,
+      limit: args.limit,
+      tier: args.tier,
+      includeArchived: args.include_archived,
+    });
+  }
 
   const enriched = results.map((r) => {
     const pattern = index.getPatternForEntry(r.id);

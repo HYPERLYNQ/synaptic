@@ -322,6 +322,63 @@ async function main(): Promise<void> {
   assert(status.dateRange !== null, `status.dateRange is not null`);
 
   // -------------------------------------------------------
+  // 10. Test rule CRUD
+  // -------------------------------------------------------
+  console.log("\n[10] Rule CRUD");
+
+  const ruleRowid = index.saveRule("no-emoji", "Never use emoji in commit messages");
+  assert(typeof ruleRowid === "number" && ruleRowid > 0, `saveRule returned rowid ${ruleRowid}`);
+
+  const rules = index.listRules();
+  assert(rules.length === 1, `listRules returns 1 rule (got ${rules.length})`);
+  assert(rules[0].label === "no-emoji", `Rule label is no-emoji`);
+  assert(rules[0].content.includes("emoji"), `Rule content mentions emoji`);
+  assert(rules[0].tier === "longterm", `Rule tier is longterm`);
+  assert(rules[0].pinned === true, `Rule is pinned`);
+
+  // saveRule with same label overwrites (upsert)
+  index.saveRule("no-emoji", "Do not include emoji in any commit messages ever");
+  const rulesAfterUpdate = index.listRules();
+  assert(rulesAfterUpdate.length === 1, `Still 1 rule after upsert (got ${rulesAfterUpdate.length})`);
+  assert(rulesAfterUpdate[0].content.includes("Do not include"), `Rule content was updated`);
+
+  // deleteRule removes it
+  const deleted = index.deleteRule("no-emoji");
+  assert(deleted === true, `deleteRule returned true`);
+  const rulesAfterDelete = index.listRules();
+  assert(rulesAfterDelete.length === 0, `0 rules after delete (got ${rulesAfterDelete.length})`);
+
+  // deleteRule on non-existent returns false
+  const deletedAgain = index.deleteRule("no-emoji");
+  assert(deletedAgain === false, `deleteRule on missing rule returns false`);
+
+  // -------------------------------------------------------
+  // 11. Test embedder cache
+  // -------------------------------------------------------
+  console.log("\n[11] Embedder cache");
+
+  const t0 = performance.now();
+  const emb1 = await embedder.embed("test cache query");
+  const t1 = performance.now();
+  const emb2 = await embedder.embed("test cache query");
+  const t2 = performance.now();
+
+  assert(emb1.length === 384, `Embedding has 384 dims`);
+  const firstMs = t1 - t0;
+  const secondMs = t2 - t1;
+  assert(secondMs < firstMs, `Cached embed is faster (${secondMs.toFixed(1)}ms vs ${firstMs.toFixed(1)}ms)`);
+  assert(secondMs < 5, `Cached embed is under 5ms (got ${secondMs.toFixed(1)}ms)`);
+
+  // -------------------------------------------------------
+  // 12. Test BM25 fast path
+  // -------------------------------------------------------
+  console.log("\n[12] BM25 fast path");
+
+  const bm25Results = index.search("PostgreSQL", { limit: 5 });
+  assert(bm25Results.length > 0, `BM25 search returned ${bm25Results.length} result(s)`);
+  assert(bm25Results[0].content.includes("PostgreSQL"), `BM25 top result is about PostgreSQL`);
+
+  // -------------------------------------------------------
   // Summary
   // -------------------------------------------------------
   index.close();
