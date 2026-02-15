@@ -424,12 +424,10 @@ export class ContextIndex {
   bumpAccess(ids: string[]): void {
     if (ids.length === 0) return;
     const now = new Date().toISOString().slice(0, 10);
-    const stmt = this.db.prepare(
-      "UPDATE entries SET access_count = access_count + 1, last_accessed = ? WHERE id = ?"
-    );
-    for (const id of ids) {
-      stmt.run(now, id);
-    }
+    const placeholders = ids.map(() => "?").join(", ");
+    this.db.prepare(
+      `UPDATE entries SET access_count = access_count + 1, last_accessed = ? WHERE id IN (${placeholders})`
+    ).run(now, ...ids);
   }
 
   hybridSearch(
