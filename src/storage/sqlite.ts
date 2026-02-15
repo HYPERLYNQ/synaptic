@@ -3,6 +3,16 @@ import * as sqliteVec from "sqlite-vec";
 import { DB_PATH, ensureDirs } from "./paths.js";
 import type { ContextEntry } from "./markdown.js";
 
+function cosineSimilarity(a: Float32Array, b: Float32Array): number {
+  let dot = 0, normA = 0, normB = 0;
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i] * b[i];
+    normA += a[i] * a[i];
+    normB += b[i] * b[i];
+  }
+  return dot / (Math.sqrt(normA) * Math.sqrt(normB));
+}
+
 export class ContextIndex {
   private db: DatabaseSync;
 
@@ -497,6 +507,66 @@ export class ContextIndex {
         AND access_count >= 3
     `);
     return Number(stmt.run().changes);
+  }
+
+  getEmbedding(entryId: string): Float32Array | null {
+    const rowidRow = this.db.prepare(
+      "SELECT rowid FROM entries WHERE id = ?"
+    ).get(entryId) as { rowid: number } | undefined;
+    if (!rowidRow) return null;
+
+    try {
+      const vecRow = this.db.prepare(
+        "SELECT embedding FROM vec_entries WHERE rowid = CAST(? AS INTEGER)"
+      ).get(rowidRow.rowid) as { embedding: ArrayBuffer | Uint8Array } | undefined;
+      if (!vecRow) return null;
+      if (vecRow.embedding instanceof Uint8Array) {
+        return new Float32Array(vecRow.embedding.buffer, vecRow.embedding.byteOffset, vecRow.embedding.byteLength / 4);
+      }
+      return new Float32Array(vecRow.embedding);
+    } catch {
+      return null;
+    }
+  }
+
+  findConsolidationCandidates(threshold: number = 0.75): Array<{ label: string; entries: ContextEntry[] }> {
+    // Get all non-archived issue/decision entries from last 30 days
+    const candidates = this.list({ days: 30, includeArchived: false })
+      .filter(e => e.type === "issue" || e.type === "decision");
+
+    if (candidates.length < 3) return [];
+
+    // Simple greedy clustering by cosine similarity
+    const used = new Set<string>();
+    const groups: Array<{ label: string; entries: ContextEntry[] }> = [];
+
+    for (let i = 0; i < candidates.length; i++) {
+      if (used.has(candidates[i].id)) continue;
+      const embA = this.getEmbedding(candidates[i].id);
+      if (!embA) continue;
+
+      const cluster: ContextEntry[] = [candidates[i]];
+
+      for (let j = i + 1; j < candidates.length; j++) {
+        if (used.has(candidates[j].id)) continue;
+        const embB = this.getEmbedding(candidates[j].id);
+        if (!embB) continue;
+
+        if (cosineSimilarity(embA, embB) >= threshold) {
+          cluster.push(candidates[j]);
+        }
+      }
+
+      if (cluster.length >= 3) {
+        cluster.forEach(e => used.add(e.id));
+        groups.push({
+          label: cluster[0].content.slice(0, 80),
+          entries: cluster,
+        });
+      }
+    }
+
+    return groups;
   }
 
   close(): void {
