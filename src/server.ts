@@ -9,6 +9,7 @@ import { contextList, contextListSchema } from "./tools/context-list.js";
 import { contextStatus } from "./tools/context-status.js";
 import { contextArchive, contextArchiveSchema } from "./tools/context-archive.js";
 import { contextGitIndex, contextGitIndexSchema } from "./tools/context-git-index.js";
+import { contextResolvePattern, contextResolvePatternSchema } from "./tools/context-resolve-pattern.js";
 
 export function createServer(): McpServer {
   ensureDirs();
@@ -86,6 +87,18 @@ export function createServer(): McpServer {
     contextGitIndexSchema,
     async (args) => {
       const result = await contextGitIndex(args, index, embedder);
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+      };
+    }
+  );
+
+  server.tool(
+    "context_resolve_pattern",
+    "Mark a recurring issue pattern as resolved. Stops surfacing in search and session-start.",
+    contextResolvePatternSchema,
+    async (args) => {
+      const result = contextResolvePattern(args, index);
       return {
         content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
       };
