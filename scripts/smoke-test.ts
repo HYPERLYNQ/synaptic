@@ -353,6 +353,23 @@ async function main(): Promise<void> {
   assert(deletedAgain === false, `deleteRule on missing rule returns false`);
 
   // -------------------------------------------------------
+  // 11. Test embedder cache
+  // -------------------------------------------------------
+  console.log("\n[11] Embedder cache");
+
+  const t0 = performance.now();
+  const emb1 = await embedder.embed("test cache query");
+  const t1 = performance.now();
+  const emb2 = await embedder.embed("test cache query");
+  const t2 = performance.now();
+
+  assert(emb1.length === 384, `Embedding has 384 dims`);
+  const firstMs = t1 - t0;
+  const secondMs = t2 - t1;
+  assert(secondMs < firstMs, `Cached embed is faster (${secondMs.toFixed(1)}ms vs ${firstMs.toFixed(1)}ms)`);
+  assert(secondMs < 5, `Cached embed is under 5ms (got ${secondMs.toFixed(1)}ms)`);
+
+  // -------------------------------------------------------
   // Summary
   // -------------------------------------------------------
   index.close();

@@ -11,10 +11,17 @@ import { contextArchive, contextArchiveSchema } from "./tools/context-archive.js
 import { contextGitIndex, contextGitIndexSchema } from "./tools/context-git-index.js";
 import { contextResolvePattern, contextResolvePatternSchema } from "./tools/context-resolve-pattern.js";
 
+let _embedder: Embedder;
+
+export function getEmbedder(): Embedder {
+  return _embedder;
+}
+
 export function createServer(): McpServer {
   ensureDirs();
   const index = new ContextIndex();
-  const embedder = new Embedder();
+  _embedder = new Embedder();
+  const embedder = _embedder;
 
   const server = new McpServer({
     name: "synaptic",
