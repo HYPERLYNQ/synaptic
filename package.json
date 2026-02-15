@@ -6,7 +6,8 @@
   "main": "build/index.js",
   "scripts": {
     "build": "tsc",
-    "rebuild-index": "node build/scripts/rebuild-index.js"
+    "rebuild-index": "node build/scripts/rebuild-index.js",
+    "smoke-test": "npm run build && node build/scripts/smoke-test.js"
   },
   "dependencies": {
     "@huggingface/transformers": "^3.8.1",
