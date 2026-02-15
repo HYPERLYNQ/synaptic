@@ -455,6 +455,50 @@ export class ContextIndex {
     return result;
   }
 
+  /** Archive ephemeral entries older than N days */
+  decayEphemeral(daysOld: number = 7): number {
+    const stmt = this.db.prepare(`
+      UPDATE entries SET archived = 1
+      WHERE tier = 'ephemeral' AND pinned = 0 AND archived = 0
+        AND date < date('now', '-' || ? || ' days')
+    `);
+    return Number(stmt.run(daysOld).changes);
+  }
+
+  /** Demote working entries not accessed in N days to ephemeral */
+  demoteIdle(idleDays: number = 30): number {
+    const stmt = this.db.prepare(`
+      UPDATE entries SET tier = 'ephemeral'
+      WHERE tier = 'working' AND pinned = 0 AND archived = 0
+        AND (
+          (last_accessed IS NULL AND date < date('now', '-' || ? || ' days'))
+          OR (last_accessed IS NOT NULL AND last_accessed < date('now', '-' || ? || ' days'))
+        )
+    `);
+    return Number(stmt.run(idleDays, idleDays).changes);
+  }
+
+  /** Promote decisions/insights older than 7 days to longterm */
+  promoteStable(): number {
+    const stmt = this.db.prepare(`
+      UPDATE entries SET tier = 'longterm'
+      WHERE tier = 'working' AND archived = 0
+        AND type IN ('decision', 'insight')
+        AND date < date('now', '-7 days')
+    `);
+    return Number(stmt.run().changes);
+  }
+
+  /** Promote ephemeral entries accessed 3+ times to working */
+  promoteFrequent(): number {
+    const stmt = this.db.prepare(`
+      UPDATE entries SET tier = 'working'
+      WHERE tier = 'ephemeral' AND archived = 0
+        AND access_count >= 3
+    `);
+    return Number(stmt.run().changes);
+  }
+
   close(): void {
     this.db.close();
   }
