@@ -56,15 +56,22 @@ export async function contextSearch(
     includeArchived: args.include_archived,
   });
 
-  return {
-    results: results.map((r) => ({
+  const enriched = results.map((r) => {
+    const pattern = index.getPatternForEntry(r.id);
+    return {
       id: r.id,
       date: r.date,
       time: r.time,
       type: r.type,
       tags: r.tags,
       content: r.content,
-    })),
-    total: results.length,
+      ...(r.tier ? { tier: r.tier } : {}),
+      ...(pattern ? { pattern: `Recurring pattern: seen ${pattern.occurrenceCount} times (pattern: ${pattern.id})` } : {}),
+    };
+  });
+
+  return {
+    results: enriched,
+    total: enriched.length,
   };
 }
