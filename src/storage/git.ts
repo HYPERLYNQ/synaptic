@@ -1,4 +1,4 @@
-import { execSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
@@ -32,14 +32,12 @@ export function getGitLog(
 ): GitCommit[] {
   const days = opts.days ?? 7;
   const branch = opts.branch ?? getCurrentBranch(repoPath);
-  const since = `--since="${days} days ago"`;
-
   try {
-    // Get commits with stats
-    const raw = execSync(
-      `git log ${branch} ${since} --format="COMMIT_SEP%n%H%n%s%n%an%n%aI" --numstat`,
-      { cwd: repoPath, encoding: "utf-8", maxBuffer: 10 * 1024 * 1024 }
-    );
+    // Get commits with stats (execFileSync to avoid shell injection via branch name)
+    const raw = execFileSync("git", [
+      "log", branch, `--since=${days} days ago`,
+      "--format=COMMIT_SEP%n%H%n%s%n%an%n%aI", "--numstat",
+    ], { cwd: repoPath, encoding: "utf-8", maxBuffer: 10 * 1024 * 1024 });
 
     const commits: GitCommit[] = [];
     const blocks = raw.split("COMMIT_SEP\n").filter(Boolean);

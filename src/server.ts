@@ -59,7 +59,7 @@ export function createServer(): McpServer {
 
   server.tool(
     "context_status",
-    "Show storage stats: total entries, date range, database size",
+    "Show storage stats: total entries, date range, database size, tier distribution, active patterns",
     {},
     async () => {
       const result = contextStatus(index);
