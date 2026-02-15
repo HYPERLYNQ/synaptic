@@ -21,10 +21,19 @@ export const contextSearchSchema = {
     .max(100)
     .default(20)
     .describe("Maximum results to return"),
+  tier: z
+    .enum(["ephemeral", "working", "longterm"])
+    .optional()
+    .describe("Filter results to specific memory tier"),
+  include_archived: z
+    .boolean()
+    .optional()
+    .default(false)
+    .describe("Include archived entries in results"),
 };
 
 export async function contextSearch(
-  args: { query: string; type?: string; days?: number; limit?: number },
+  args: { query: string; type?: string; days?: number; limit?: number; tier?: string; include_archived?: boolean },
   index: ContextIndex,
   embedder: Embedder
 ): Promise<{
@@ -43,6 +52,8 @@ export async function contextSearch(
     type: args.type,
     days: args.days,
     limit: args.limit,
+    tier: args.tier,
+    includeArchived: args.include_archived,
   });
 
   return {
