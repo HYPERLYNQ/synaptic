@@ -370,6 +370,15 @@ async function main(): Promise<void> {
   assert(secondMs < 5, `Cached embed is under 5ms (got ${secondMs.toFixed(1)}ms)`);
 
   // -------------------------------------------------------
+  // 12. Test BM25 fast path
+  // -------------------------------------------------------
+  console.log("\n[12] BM25 fast path");
+
+  const bm25Results = index.search("PostgreSQL", { limit: 5 });
+  assert(bm25Results.length > 0, `BM25 search returned ${bm25Results.length} result(s)`);
+  assert(bm25Results[0].content.includes("PostgreSQL"), `BM25 top result is about PostgreSQL`);
+
+  // -------------------------------------------------------
   // Summary
   // -------------------------------------------------------
   index.close();
