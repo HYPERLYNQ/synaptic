@@ -27,7 +27,7 @@ export async function contextSave(
   args: { content: string; type: string; tags: string[]; tier?: string; pinned?: boolean },
   index: ContextIndex,
   embedder: Embedder
-): Promise<{ success: boolean; id: string; date: string; time: string; tier: string }> {
+): Promise<{ success: boolean; id: string; date: string; time: string; tier: string; pattern_detected?: string }> {
   const tier = ContextIndex.assignTier(args.type, args.tier);
   const entry = appendEntry(args.content, args.type, args.tags);
   entry.tier = tier;
@@ -37,11 +37,26 @@ export async function contextSave(
   const embedding = await embedder.embed(args.content);
   index.insertVec(rowid, embedding);
 
+  // Pattern detection for issues
+  let patternId: string | undefined;
+  if (args.type === "issue") {
+    try {
+      const similar = index.findSimilarIssues(embedding);
+      if (similar.length >= 2) {
+        const allIds = [entry.id, ...similar.map(e => e.id)];
+        patternId = index.createOrUpdatePattern(args.content, allIds);
+      }
+    } catch {
+      // Don't fail the save if pattern detection errors
+    }
+  }
+
   return {
     success: true,
     id: entry.id,
     date: entry.date,
     time: entry.time,
     tier,
+    ...(patternId ? { pattern_detected: patternId } : {}),
   };
 }
