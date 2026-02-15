@@ -6,7 +6,7 @@ import { Embedder } from "../storage/embedder.js";
 export const contextSaveSchema = {
   content: z.string().describe("The context content to save"),
   type: z
-    .enum(["decision", "progress", "issue", "handoff", "insight", "reference", "git_commit"])
+    .enum(["decision", "progress", "issue", "handoff", "insight", "reference", "git_commit", "rule"])
     .describe("Type of context entry"),
   tags: z
     .array(z.string())
