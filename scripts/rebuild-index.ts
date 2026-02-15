@@ -1,15 +1,20 @@
 /**
- * CLI script to rebuild the SQLite FTS index from markdown source files.
+ * CLI script to rebuild the SQLite FTS + vector index from markdown source files.
  * Usage: node build/scripts/rebuild-index.js
  */
 
 import { ContextIndex } from "../src/storage/sqlite.js";
-import { listMarkdownFiles, parseMarkdownFile } from "../src/storage/markdown.js";
+import {
+  listMarkdownFiles,
+  parseMarkdownFile,
+} from "../src/storage/markdown.js";
 import { ensureDirs } from "../src/storage/paths.js";
+import { Embedder } from "../src/storage/embedder.js";
 
-function main(): void {
+async function main(): Promise<void> {
   ensureDirs();
   const index = new ContextIndex();
+  const embedder = new Embedder();
 
   console.log("Rebuilding SQLite index from markdown files...");
 
@@ -23,13 +28,15 @@ function main(): void {
   for (const file of files) {
     const entries = parseMarkdownFile(file);
     for (const entry of entries) {
-      index.insert(entry);
+      const rowid = index.insert(entry);
+      const embedding = await embedder.embed(entry.content);
+      index.insertVec(rowid, embedding);
     }
     totalEntries += entries.length;
     console.log(`  ${file}: ${entries.length} entries`);
   }
 
-  console.log(`Done. Indexed ${totalEntries} entries total.`);
+  console.log(`Done. Indexed ${totalEntries} entries with vectors.`);
   index.close();
 }
 
