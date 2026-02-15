@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { ContextIndex } from "./storage/sqlite.js";
+import { Embedder } from "./storage/embedder.js";
 import { ensureDirs } from "./storage/paths.js";
 import { contextSave, contextSaveSchema } from "./tools/context-save.js";
 import { contextSearch, contextSearchSchema } from "./tools/context-search.js";
@@ -10,6 +11,7 @@ import { contextStatus } from "./tools/context-status.js";
 export function createServer(): McpServer {
   ensureDirs();
   const index = new ContextIndex();
+  const embedder = new Embedder();
 
   const server = new McpServer({
     name: "synaptic",
@@ -21,7 +23,7 @@ export function createServer(): McpServer {
     "Save a context entry (decision, progress, issue, etc.) to persistent local storage",
     contextSaveSchema,
     async (args) => {
-      const result = contextSave(args, index);
+      const result = await contextSave(args, index, embedder);
       return {
         content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
       };
@@ -30,10 +32,10 @@ export function createServer(): McpServer {
 
   server.tool(
     "context_search",
-    "Search saved context entries using BM25 keyword search",
+    "Search saved context entries using hybrid semantic + keyword search",
     contextSearchSchema,
     async (args) => {
-      const result = contextSearch(args, index);
+      const result = await contextSearch(args, index, embedder);
       return {
         content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
       };
