@@ -602,6 +602,13 @@ export class ContextIndex {
     return groups;
   }
 
+  hasEntryWithTag(tag: string): boolean {
+    const row = this.db.prepare(
+      "SELECT 1 FROM entries WHERE tags LIKE ? LIMIT 1"
+    ).get(`%${tag}%`);
+    return !!row;
+  }
+
   close(): void {
     this.db.close();
   }
