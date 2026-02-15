@@ -1,4 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
+import * as sqliteVec from "sqlite-vec";
 import { DB_PATH, ensureDirs } from "./paths.js";
 import type { ContextEntry } from "./markdown.js";
 
@@ -7,7 +8,8 @@ export class ContextIndex {
 
   constructor(dbPath: string = DB_PATH) {
     ensureDirs();
-    this.db = new DatabaseSync(dbPath);
+    this.db = new DatabaseSync(dbPath, { allowExtension: true });
+    sqliteVec.load(this.db);
     this.init();
   }
 
@@ -59,9 +61,15 @@ export class ContextIndex {
     this.db.exec(`
       CREATE INDEX IF NOT EXISTS idx_entries_type ON entries(type)
     `);
+
+    this.db.exec(`
+      CREATE VIRTUAL TABLE IF NOT EXISTS vec_entries USING vec0(
+        embedding FLOAT[384]
+      )
+    `);
   }
 
-  insert(entry: ContextEntry): void {
+  insert(entry: ContextEntry): number {
     const stmt = this.db.prepare(`
       INSERT OR REPLACE INTO entries (id, date, time, type, tags, content, source_file)
       VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -75,6 +83,16 @@ export class ContextIndex {
       entry.content,
       entry.sourceFile
     );
+    const row = this.db.prepare("SELECT last_insert_rowid() as rowid").get() as Record<string, unknown>;
+    return row.rowid as number;
+  }
+
+  insertVec(entryRowid: number, embedding: Float32Array): void {
+    const stmt = this.db.prepare(`
+      INSERT INTO vec_entries(rowid, embedding)
+      VALUES (?, ?)
+    `);
+    stmt.run(entryRowid, new Uint8Array(embedding.buffer));
   }
 
   search(
@@ -113,6 +131,47 @@ export class ContextIndex {
     const stmt = this.db.prepare(sql);
     const rows = stmt.all(...params) as Record<string, unknown>[];
 
+    return rows.map((row) => ({
+      id: row.id as string,
+      date: row.date as string,
+      time: row.time as string,
+      type: row.type as string,
+      tags: (row.tags as string).split(", ").filter(Boolean),
+      content: row.content as string,
+      sourceFile: row.source_file as string,
+    }));
+  }
+
+  searchVec(
+    embedding: Float32Array,
+    limit: number
+  ): Array<{ rowid: number; distance: number }> {
+    const stmt = this.db.prepare(`
+      SELECT rowid, distance
+      FROM vec_entries
+      WHERE embedding MATCH ?
+      ORDER BY distance
+      LIMIT ?
+    `);
+    const rows = stmt.all(
+      new Uint8Array(embedding.buffer),
+      limit
+    ) as Array<Record<string, unknown>>;
+    return rows.map((r) => ({
+      rowid: r.rowid as number,
+      distance: r.distance as number,
+    }));
+  }
+
+  getByRowids(rowids: number[]): ContextEntry[] {
+    if (rowids.length === 0) return [];
+    const placeholders = rowids.map(() => "?").join(", ");
+    const stmt = this.db.prepare(`
+      SELECT rowid, id, date, time, type, tags, content, source_file
+      FROM entries
+      WHERE rowid IN (${placeholders})
+    `);
+    const rows = stmt.all(...rowids) as Array<Record<string, unknown>>;
     return rows.map((row) => ({
       id: row.id as string,
       date: row.date as string,
