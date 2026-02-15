@@ -67,12 +67,49 @@ export class ContextIndex {
         embedding FLOAT[384]
       )
     `);
+
+    this.migrate();
+  }
+
+  private migrate(): void {
+    // Check if tier column already exists
+    const columns = this.db.prepare("PRAGMA table_info(entries)").all() as Array<Record<string, unknown>>;
+    const hasTier = columns.some((col) => col.name === "tier");
+
+    if (!hasTier) {
+      this.db.exec("ALTER TABLE entries ADD COLUMN tier TEXT DEFAULT 'working'");
+      this.db.exec("ALTER TABLE entries ADD COLUMN access_count INTEGER DEFAULT 0");
+      this.db.exec("ALTER TABLE entries ADD COLUMN last_accessed TEXT");
+      this.db.exec("ALTER TABLE entries ADD COLUMN pinned INTEGER DEFAULT 0");
+      this.db.exec("ALTER TABLE entries ADD COLUMN archived INTEGER DEFAULT 0");
+
+      // Backfill tiers based on entry type
+      this.db.exec("UPDATE entries SET tier = 'ephemeral' WHERE type IN ('handoff', 'progress')");
+      this.db.exec("UPDATE entries SET tier = 'longterm' WHERE type = 'reference'");
+    }
+
+    // Create patterns table for Phase 3c
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS patterns (
+        id TEXT PRIMARY KEY,
+        label TEXT NOT NULL,
+        entry_ids TEXT NOT NULL,
+        occurrence_count INTEGER NOT NULL DEFAULT 0,
+        first_seen TEXT NOT NULL,
+        last_seen TEXT NOT NULL,
+        resolved INTEGER DEFAULT 0
+      )
+    `);
+
+    // Create indexes for new columns
+    this.db.exec("CREATE INDEX IF NOT EXISTS idx_entries_tier ON entries(tier)");
+    this.db.exec("CREATE INDEX IF NOT EXISTS idx_entries_archived ON entries(archived)");
   }
 
   insert(entry: ContextEntry): number {
     const stmt = this.db.prepare(`
-      INSERT OR REPLACE INTO entries (id, date, time, type, tags, content, source_file)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT OR REPLACE INTO entries (id, date, time, type, tags, content, source_file, tier, access_count, last_accessed, pinned, archived)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     stmt.run(
       entry.id,
@@ -81,7 +118,12 @@ export class ContextIndex {
       entry.type,
       entry.tags.join(", "),
       entry.content,
-      entry.sourceFile
+      entry.sourceFile,
+      entry.tier ?? "working",
+      entry.accessCount ?? 0,
+      entry.lastAccessed ?? null,
+      entry.pinned ? 1 : 0,
+      entry.archived ? 1 : 0
     );
     const row = this.db.prepare("SELECT last_insert_rowid() as rowid").get() as Record<string, unknown>;
     return row.rowid as number;
@@ -120,6 +162,7 @@ export class ContextIndex {
 
     const sql = `
       SELECT e.id, e.date, e.time, e.type, e.tags, e.content, e.source_file,
+             e.tier, e.access_count, e.last_accessed, e.pinned, e.archived,
              rank
       FROM entries_fts
       JOIN entries e ON entries_fts.rowid = e.rowid
@@ -139,6 +182,11 @@ export class ContextIndex {
       tags: (row.tags as string).split(", ").filter(Boolean),
       content: row.content as string,
       sourceFile: row.source_file as string,
+      tier: row.tier as ContextEntry["tier"],
+      accessCount: row.access_count as number,
+      lastAccessed: row.last_accessed as string | null,
+      pinned: !!(row.pinned as number),
+      archived: !!(row.archived as number),
     }));
   }
 
@@ -167,7 +215,7 @@ export class ContextIndex {
     if (rowids.length === 0) return [];
     const placeholders = rowids.map(() => "?").join(", ");
     const stmt = this.db.prepare(`
-      SELECT rowid, id, date, time, type, tags, content, source_file
+      SELECT rowid, id, date, time, type, tags, content, source_file, tier, access_count, last_accessed, pinned, archived
       FROM entries
       WHERE rowid IN (${placeholders})
     `);
@@ -180,6 +228,11 @@ export class ContextIndex {
       tags: (row.tags as string).split(", ").filter(Boolean),
       content: row.content as string,
       sourceFile: row.source_file as string,
+      tier: row.tier as ContextEntry["tier"],
+      accessCount: row.access_count as number,
+      lastAccessed: row.last_accessed as string | null,
+      pinned: !!(row.pinned as number),
+      archived: !!(row.archived as number),
     }));
   }
 
@@ -200,7 +253,7 @@ export class ContextIndex {
     const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
 
     const sql = `
-      SELECT id, date, time, type, tags, content, source_file
+      SELECT id, date, time, type, tags, content, source_file, tier, access_count, last_accessed, pinned, archived
       FROM entries
       ${where}
       ORDER BY date DESC, time DESC
@@ -217,6 +270,11 @@ export class ContextIndex {
       tags: (row.tags as string).split(", ").filter(Boolean),
       content: row.content as string,
       sourceFile: row.source_file as string,
+      tier: row.tier as ContextEntry["tier"],
+      accessCount: row.access_count as number,
+      lastAccessed: row.last_accessed as string | null,
+      pinned: !!(row.pinned as number),
+      archived: !!(row.archived as number),
     }));
   }
 

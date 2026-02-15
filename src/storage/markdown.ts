@@ -9,6 +9,11 @@ export interface ContextEntry {
   tags: string[];
   content: string;
   sourceFile: string;
+  tier?: "ephemeral" | "working" | "longterm";
+  accessCount?: number;
+  lastAccessed?: string | null;
+  pinned?: boolean;
+  archived?: boolean;
 }
 
 function generateId(): string {
