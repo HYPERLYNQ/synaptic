@@ -350,6 +350,17 @@ export class ContextIndex {
     });
   }
 
+  bumpAccess(ids: string[]): void {
+    if (ids.length === 0) return;
+    const now = new Date().toISOString().slice(0, 10);
+    const stmt = this.db.prepare(
+      "UPDATE entries SET access_count = access_count + 1, last_accessed = ? WHERE id = ?"
+    );
+    for (const id of ids) {
+      stmt.run(now, id);
+    }
+  }
+
   hybridSearch(
     query: string,
     embedding: Float32Array,
@@ -407,7 +418,9 @@ export class ContextIndex {
 
     // 5. Sort by score descending, return top N
     scored.sort((a, b) => b.score - a.score);
-    return scored.slice(0, limit).map((s) => s.entry);
+    const result = scored.slice(0, limit).map((s) => s.entry);
+    this.bumpAccess(result.map((e) => e.id));
+    return result;
   }
 
   close(): void {
