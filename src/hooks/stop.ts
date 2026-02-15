@@ -9,6 +9,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { appendEntry } from "../storage/markdown.js";
 import { ContextIndex } from "../storage/sqlite.js";
+import { Embedder } from "../storage/embedder.js";
 import { ensureDirs, DB_DIR } from "../storage/paths.js";
 
 const DEBOUNCE_FILE = join(DB_DIR, ".last-handoff");
@@ -60,6 +61,7 @@ async function main(): Promise<void> {
   }
 
   const index = new ContextIndex();
+  const embedder = new Embedder();
 
   try {
     // Check if there's been meaningful activity today
@@ -101,7 +103,9 @@ async function main(): Promise<void> {
     }
 
     const entry = appendEntry(content.join("\n"), "handoff", tagList);
-    index.insert(entry);
+    const rowid = index.insert(entry);
+    const embedding = await embedder.embed(entry.content);
+    index.insertVec(rowid, embedding);
     updateDebounceTimestamp();
   } finally {
     index.close();
