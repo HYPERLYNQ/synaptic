@@ -393,6 +393,7 @@ export class ContextIndex {
       type: opts.type,
       days: opts.days,
       limit: candidateLimit,
+      includeArchived: opts.includeArchived,
     });
 
     // 2. Vector search
