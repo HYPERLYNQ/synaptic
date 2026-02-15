@@ -358,6 +358,16 @@ export class ContextIndex {
     });
   }
 
+  archiveEntries(ids: string[]): number {
+    if (ids.length === 0) return 0;
+    const placeholders = ids.map(() => "?").join(", ");
+    const stmt = this.db.prepare(
+      `UPDATE entries SET archived = 1 WHERE id IN (${placeholders}) AND pinned = 0`
+    );
+    const result = stmt.run(...ids);
+    return Number(result.changes);
+  }
+
   bumpAccess(ids: string[]): void {
     if (ids.length === 0) return;
     const now = new Date().toISOString().slice(0, 10);
