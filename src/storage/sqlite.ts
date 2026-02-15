@@ -309,7 +309,14 @@ export class ContextIndex {
     }));
   }
 
-  status(): { totalEntries: number; dateRange: { earliest: string; latest: string } | null; dbSizeBytes: number } {
+  status(): {
+    totalEntries: number;
+    dateRange: { earliest: string; latest: string } | null;
+    dbSizeBytes: number;
+    tierDistribution: Record<string, number>;
+    archivedCount: number;
+    activePatterns: number;
+  } {
     const countRow = this.db.prepare("SELECT COUNT(*) as count FROM entries").get() as Record<string, unknown>;
     const total = countRow.count as number;
 
@@ -334,7 +341,33 @@ export class ContextIndex {
       // Ignore if pragma fails
     }
 
-    return { totalEntries: total, dateRange, dbSizeBytes };
+    // Tier distribution (non-archived only)
+    const tierRows = this.db.prepare(
+      "SELECT tier, COUNT(*) as count FROM entries WHERE archived = 0 GROUP BY tier"
+    ).all() as Array<{ tier: string; count: number }>;
+    const tierDistribution: Record<string, number> = {};
+    for (const row of tierRows) {
+      tierDistribution[row.tier] = row.count;
+    }
+
+    // Archived count
+    const archivedRow = this.db.prepare(
+      "SELECT COUNT(*) as count FROM entries WHERE archived = 1"
+    ).get() as { count: number };
+
+    // Active patterns count
+    const patternRow = this.db.prepare(
+      "SELECT COUNT(*) as count FROM patterns WHERE resolved = 0"
+    ).get() as { count: number };
+
+    return {
+      totalEntries: total,
+      dateRange,
+      dbSizeBytes,
+      tierDistribution,
+      archivedCount: archivedRow.count,
+      activePatterns: patternRow.count,
+    };
   }
 
   clearAll(): void {
