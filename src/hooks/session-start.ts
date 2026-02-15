@@ -7,6 +7,9 @@
 
 import { ContextIndex } from "../storage/sqlite.js";
 import { ensureDirs } from "../storage/paths.js";
+import { runMaintenance } from "../storage/maintenance.js";
+import { Embedder } from "../storage/embedder.js";
+import { contextGitIndex } from "../tools/context-git-index.js";
 
 interface SessionStartInput {
   source: string;
@@ -32,12 +35,23 @@ async function main(): Promise<void> {
 
   const index = new ContextIndex();
 
-  try {
-    // Get recent entries (last 3 days)
-    const recent = index.list({ days: 3 });
+  // Run maintenance (decay, promotion) before listing
+  const maintenance = runMaintenance(index);
 
-    // Get handoff entries specifically (last 7 days)
-    const handoffs = index.list({ days: 7, type: "handoff" });
+  try {
+    // Auto-index recent git commits (last 24h, silent failure)
+    const embedder = new Embedder();
+    try {
+      await contextGitIndex({ days: 1 }, index, embedder);
+    } catch {
+      // Don't block session start
+    }
+
+    // Get recent entries (last 3 days), excluding ephemeral tier
+    const recent = index.list({ days: 3 }).filter(e => e.tier !== "ephemeral");
+
+    // Get handoff entries specifically (last 7 days), limit to 3
+    const handoffs = index.list({ days: 7, type: "handoff" }).slice(0, 3);
 
     if (recent.length === 0 && handoffs.length === 0) {
       return; // No context to inject
@@ -49,7 +63,7 @@ async function main(): Promise<void> {
 
     if (handoffs.length > 0) {
       lines.push("## Recent Handoff Notes");
-      for (const entry of handoffs.slice(0, 5)) {
+      for (const entry of handoffs) {
         lines.push(`- **${entry.date} ${entry.time}** [${entry.tags.join(", ")}]: ${entry.content}`);
       }
       lines.push("");
@@ -71,6 +85,51 @@ async function main(): Promise<void> {
         lines.push(`- **${entry.time}** (${entry.type})${tagStr}: ${entry.content}`);
       }
       lines.push("");
+    }
+
+    // Consolidation candidates
+    try {
+      const groups = index.findConsolidationCandidates();
+      if (groups.length > 0) {
+        lines.push("## Consolidation Candidates");
+        lines.push("The following entry groups are semantically similar and should be consolidated.");
+        lines.push("For each group: summarize into one entry via `context_save` (type: the appropriate type, tier: longterm), then archive originals via `context_archive`.");
+        lines.push("");
+        for (const group of groups) {
+          lines.push(`**Group** (${group.entries.length} entries, topic: ${group.label}):`);
+          for (const e of group.entries) {
+            const preview = e.content.length > 120 ? e.content.slice(0, 120) + "..." : e.content;
+            lines.push(`- [${e.id}] ${e.date} (${e.type}): ${preview}`);
+          }
+          lines.push("");
+        }
+      }
+    } catch {
+      // Don't block session start if consolidation detection fails
+    }
+
+    // Recurring issue patterns
+    const patterns = index.getActivePatterns();
+    if (patterns.length > 0) {
+      lines.push("## Recurring Issues");
+      for (const pattern of patterns) {
+        const daySpan = Math.ceil(
+          (new Date(pattern.lastSeen).getTime() - new Date(pattern.firstSeen).getTime()) / (1000 * 60 * 60 * 24)
+        ) || 1;
+        lines.push(`- "${pattern.label}" — ${pattern.occurrenceCount} occurrences over ${daySpan} days (last: ${pattern.lastSeen})`);
+      }
+      lines.push("");
+    }
+
+    // Maintenance summary
+    const maintTotal = maintenance.decayed + maintenance.demoted + maintenance.promotedStable + maintenance.promotedFrequent;
+    if (maintTotal > 0) {
+      const parts: string[] = [];
+      if (maintenance.decayed > 0) parts.push(`${maintenance.decayed} archived`);
+      if (maintenance.demoted > 0) parts.push(`${maintenance.demoted} demoted`);
+      if (maintenance.promotedStable > 0) parts.push(`${maintenance.promotedStable} promoted to longterm`);
+      if (maintenance.promotedFrequent > 0) parts.push(`${maintenance.promotedFrequent} promoted to working`);
+      lines.push(`_Maintenance: ${parts.join(", ")}._`);
     }
 
     const stats = index.status();

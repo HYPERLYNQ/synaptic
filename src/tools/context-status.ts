@@ -5,6 +5,9 @@ export function contextStatus(index: ContextIndex): {
   dateRange: { earliest: string; latest: string } | null;
   dbSizeBytes: number;
   dbSizeHuman: string;
+  tierDistribution: Record<string, number>;
+  archivedCount: number;
+  activePatterns: number;
 } {
   const stats = index.status();
 

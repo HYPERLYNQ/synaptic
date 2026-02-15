@@ -60,6 +60,7 @@ async function main(): Promise<void> {
     }
 
     const entry = appendEntry(content.join("\n"), "progress", ["compaction-snapshot"]);
+    entry.tier = ContextIndex.assignTier(entry.type);
     const rowid = index.insert(entry);
     const embedding = await embedder.embed(entry.content);
     index.insertVec(rowid, embedding);
