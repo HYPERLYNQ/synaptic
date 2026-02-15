@@ -1,8 +1,13 @@
 /**
- * SessionStart hook: Injects recent context entries into Claude's conversation.
+ * SessionStart hook: Injects rules + recent context into Claude's conversation.
  * Stdout from this hook is automatically added to Claude's context.
  *
- * Receives JSON on stdin: { source: "startup"|"resume"|"compact"|"clear", ... }
+ * Injection priority (token budget ~3200 chars):
+ * 1. Rules (always full, never truncated)
+ * 2. Recent context (last 3 days, compact format)
+ * 3. Most recent handoff note (1 only)
+ * 4. Recurring patterns
+ * 5. Maintenance summary (only if something changed)
  */
 
 import { ContextIndex } from "../storage/sqlite.js";
@@ -11,6 +16,8 @@ import { runMaintenance } from "../storage/maintenance.js";
 import { Embedder } from "../storage/embedder.js";
 import { contextGitIndex } from "../tools/context-git-index.js";
 
+const TOKEN_BUDGET_CHARS = 3200; // ~800 tokens
+
 interface SessionStartInput {
   source: string;
 }
@@ -18,7 +25,6 @@ interface SessionStartInput {
 async function main(): Promise<void> {
   ensureDirs();
 
-  // Read stdin
   let input: SessionStartInput = { source: "startup" };
   try {
     const chunks: Buffer[] = [];
@@ -30,7 +36,7 @@ async function main(): Promise<void> {
       input = JSON.parse(raw);
     }
   } catch {
-    // Use defaults if stdin parsing fails
+    // Use defaults
   }
 
   const index = new ContextIndex();
@@ -39,7 +45,7 @@ async function main(): Promise<void> {
   const maintenance = runMaintenance(index);
 
   try {
-    // Auto-index recent git commits (last 24h, silent failure)
+    // Auto-index recent git commits (silent)
     const embedder = new Embedder();
     try {
       await contextGitIndex({ days: 1 }, index, embedder);
@@ -47,95 +53,86 @@ async function main(): Promise<void> {
       // Don't block session start
     }
 
-    // Get recent entries (last 3 days), excluding ephemeral tier
-    const recent = index.list({ days: 3 }).filter(e => e.tier !== "ephemeral");
-
-    // Get handoff entries specifically (last 7 days), limit to 3
-    const handoffs = index.list({ days: 7, type: "handoff" }).slice(0, 3);
-
-    if (recent.length === 0 && handoffs.length === 0) {
-      return; // No context to inject
-    }
-
     const lines: string[] = [];
-    lines.push("# Persistent Context (auto-injected)");
-    lines.push("");
+    let charCount = 0;
 
-    if (handoffs.length > 0) {
-      lines.push("## Recent Handoff Notes");
-      for (const entry of handoffs) {
-        lines.push(`- **${entry.date} ${entry.time}** [${entry.tags.join(", ")}]: ${entry.content}`);
+    // --- SECTION 1: Rules (always full, never truncated) ---
+    const rules = index.listRules();
+    if (rules.length > 0) {
+      lines.push("# Rules (ALWAYS follow, NO exceptions)");
+      for (const rule of rules) {
+        lines.push(`- ${rule.content}`);
       }
       lines.push("");
     }
+    charCount = lines.join("\n").length;
 
-    // Show recent entries grouped by date (exclude handoffs already shown)
-    const handoffIds = new Set(handoffs.map((h) => h.id));
-    const nonHandoff = recent.filter((e) => !handoffIds.has(e.id));
-
-    if (nonHandoff.length > 0) {
-      lines.push("## Recent Context (last 3 days)");
+    // --- SECTION 2: Recent context (last 3 days, compact) ---
+    const budgetForContext: string[] = [];
+    const recent = index.list({ days: 3 })
+      .filter(e => e.tier !== "ephemeral" && e.type !== "handoff" && e.type !== "rule");
+    if (recent.length > 0) {
+      budgetForContext.push("## Recent Context (last 3 days)");
       let currentDate = "";
-      for (const entry of nonHandoff.slice(0, 15)) {
+      for (const entry of recent.slice(0, 15)) {
         if (entry.date !== currentDate) {
           currentDate = entry.date;
-          lines.push(`\n### ${currentDate}`);
+          budgetForContext.push(`\n### ${currentDate.slice(5)}`);
         }
-        const tagStr = entry.tags.length > 0 ? ` [${entry.tags.join(", ")}]` : "";
-        lines.push(`- **${entry.time}** (${entry.type})${tagStr}: ${entry.content}`);
+        budgetForContext.push(`- ${entry.time} [${entry.type}] ${entry.content}`);
       }
-      lines.push("");
+      budgetForContext.push("");
     }
 
-    // Consolidation candidates
-    try {
-      const groups = index.findConsolidationCandidates();
-      if (groups.length > 0) {
-        lines.push("## Consolidation Candidates");
-        lines.push("The following entry groups are semantically similar and should be consolidated.");
-        lines.push("For each group: summarize into one entry via `context_save` (type: the appropriate type, tier: longterm), then archive originals via `context_archive`.");
-        lines.push("");
-        for (const group of groups) {
-          lines.push(`**Group** (${group.entries.length} entries, topic: ${group.label}):`);
-          for (const e of group.entries) {
-            const preview = e.content.length > 120 ? e.content.slice(0, 120) + "..." : e.content;
-            lines.push(`- [${e.id}] ${e.date} (${e.type}): ${preview}`);
-          }
-          lines.push("");
-        }
-      }
-    } catch {
-      // Don't block session start if consolidation detection fails
+    // --- SECTION 3: Recent handoff (1 only) ---
+    const budgetForHandoff: string[] = [];
+    const handoffs = index.list({ days: 7, type: "handoff" }).slice(0, 1);
+    if (handoffs.length > 0) {
+      const h = handoffs[0];
+      budgetForHandoff.push("## Recent Handoff");
+      budgetForHandoff.push(`- ${h.date.slice(5)} ${h.time}: ${h.content}`);
+      budgetForHandoff.push("");
     }
 
-    // Recurring issue patterns
+    // --- SECTION 4: Recurring patterns ---
+    const budgetForPatterns: string[] = [];
     const patterns = index.getActivePatterns();
     if (patterns.length > 0) {
-      lines.push("## Recurring Issues");
-      for (const pattern of patterns) {
-        const daySpan = Math.ceil(
-          (new Date(pattern.lastSeen).getTime() - new Date(pattern.firstSeen).getTime()) / (1000 * 60 * 60 * 24)
-        ) || 1;
-        lines.push(`- "${pattern.label}" — ${pattern.occurrenceCount} occurrences over ${daySpan} days (last: ${pattern.lastSeen})`);
+      budgetForPatterns.push("## Recurring Issues");
+      for (const p of patterns) {
+        budgetForPatterns.push(`- "${p.label}" — ${p.occurrenceCount}x (last: ${p.lastSeen.slice(5)})`);
       }
-      lines.push("");
+      budgetForPatterns.push("");
     }
 
-    // Maintenance summary
+    // --- SECTION 5: Maintenance (only if something happened) ---
+    const budgetForMaint: string[] = [];
     const maintTotal = maintenance.decayed + maintenance.demoted + maintenance.promotedStable + maintenance.promotedFrequent;
     if (maintTotal > 0) {
       const parts: string[] = [];
       if (maintenance.decayed > 0) parts.push(`${maintenance.decayed} archived`);
       if (maintenance.demoted > 0) parts.push(`${maintenance.demoted} demoted`);
-      if (maintenance.promotedStable > 0) parts.push(`${maintenance.promotedStable} promoted to longterm`);
-      if (maintenance.promotedFrequent > 0) parts.push(`${maintenance.promotedFrequent} promoted to working`);
-      lines.push(`_Maintenance: ${parts.join(", ")}._`);
+      if (maintenance.promotedStable > 0) parts.push(`${maintenance.promotedStable} promoted`);
+      if (maintenance.promotedFrequent > 0) parts.push(`${maintenance.promotedFrequent} promoted`);
+      budgetForMaint.push(`_Maintenance: ${parts.join(", ")}._`);
     }
 
-    const stats = index.status();
-    lines.push(`_${stats.totalEntries} total entries in context store._`);
+    // --- Assemble within budget ---
+    const sections = [budgetForContext, budgetForHandoff, budgetForPatterns, budgetForMaint];
+    for (const section of sections) {
+      const sectionText = section.join("\n");
+      if (charCount + sectionText.length <= TOKEN_BUDGET_CHARS) {
+        lines.push(...section);
+        charCount += sectionText.length;
+      }
+    }
 
-    // Output to stdout - this gets injected into Claude's context
+    // Always append entry count (tiny)
+    const stats = index.status();
+    lines.push(`\n_${stats.totalEntries} total entries in context store._`);
+
+    if (lines.length <= 1) return; // Nothing to inject
+
     process.stdout.write(lines.join("\n"));
   } finally {
     index.close();
@@ -144,5 +141,5 @@ async function main(): Promise<void> {
 
 main().catch((err) => {
   process.stderr.write(`session-start hook error: ${err}\n`);
-  process.exit(0); // Don't block session start on errors
+  process.exit(0);
 });
