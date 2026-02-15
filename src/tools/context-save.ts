@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { appendEntry } from "../storage/markdown.js";
 import { ContextIndex } from "../storage/sqlite.js";
+import { Embedder } from "../storage/embedder.js";
 
 export const contextSaveSchema = {
   content: z.string().describe("The context content to save"),
@@ -13,12 +14,17 @@ export const contextSaveSchema = {
     .describe("Tags for categorization (e.g. project names, topics)"),
 };
 
-export function contextSave(
+export async function contextSave(
   args: { content: string; type: string; tags: string[] },
-  index: ContextIndex
-): { success: boolean; id: string; date: string; time: string } {
+  index: ContextIndex,
+  embedder: Embedder
+): Promise<{ success: boolean; id: string; date: string; time: string }> {
   const entry = appendEntry(args.content, args.type, args.tags);
-  index.insert(entry);
+  const rowid = index.insert(entry);
+
+  const embedding = await embedder.embed(args.content);
+  index.insertVec(rowid, embedding);
+
   return {
     success: true,
     id: entry.id,

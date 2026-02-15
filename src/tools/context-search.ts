@@ -1,8 +1,9 @@
 import { z } from "zod";
 import { ContextIndex } from "../storage/sqlite.js";
+import { Embedder } from "../storage/embedder.js";
 
 export const contextSearchSchema = {
-  query: z.string().describe("Search query (BM25 keyword search)"),
+  query: z.string().describe("Search query (hybrid semantic + keyword search)"),
   type: z
     .enum(["decision", "progress", "issue", "handoff", "insight", "reference"])
     .optional()
@@ -22,11 +23,23 @@ export const contextSearchSchema = {
     .describe("Maximum results to return"),
 };
 
-export function contextSearch(
+export async function contextSearch(
   args: { query: string; type?: string; days?: number; limit?: number },
-  index: ContextIndex
-): { results: Array<{ id: string; date: string; time: string; type: string; tags: string[]; content: string }>; total: number } {
-  const results = index.search(args.query, {
+  index: ContextIndex,
+  embedder: Embedder
+): Promise<{
+  results: Array<{
+    id: string;
+    date: string;
+    time: string;
+    type: string;
+    tags: string[];
+    content: string;
+  }>;
+  total: number;
+}> {
+  const embedding = await embedder.embed(args.query);
+  const results = index.hybridSearch(args.query, embedding, {
     type: args.type,
     days: args.days,
     limit: args.limit,
