@@ -5,7 +5,7 @@ import { Embedder } from "../storage/embedder.js";
 export const contextSearchSchema = {
   query: z.string().describe("Search query (hybrid semantic + keyword search)"),
   type: z
-    .enum(["decision", "progress", "issue", "handoff", "insight", "reference"])
+    .enum(["decision", "progress", "issue", "handoff", "insight", "reference", "git_commit"])
     .optional()
     .describe("Filter by entry type"),
   days: z
@@ -21,10 +21,19 @@ export const contextSearchSchema = {
     .max(100)
     .default(20)
     .describe("Maximum results to return"),
+  tier: z
+    .enum(["ephemeral", "working", "longterm"])
+    .optional()
+    .describe("Filter results to specific memory tier"),
+  include_archived: z
+    .boolean()
+    .optional()
+    .default(false)
+    .describe("Include archived entries in results"),
 };
 
 export async function contextSearch(
-  args: { query: string; type?: string; days?: number; limit?: number },
+  args: { query: string; type?: string; days?: number; limit?: number; tier?: string; include_archived?: boolean },
   index: ContextIndex,
   embedder: Embedder
 ): Promise<{
@@ -43,17 +52,26 @@ export async function contextSearch(
     type: args.type,
     days: args.days,
     limit: args.limit,
+    tier: args.tier,
+    includeArchived: args.include_archived,
   });
 
-  return {
-    results: results.map((r) => ({
+  const enriched = results.map((r) => {
+    const pattern = index.getPatternForEntry(r.id);
+    return {
       id: r.id,
       date: r.date,
       time: r.time,
       type: r.type,
       tags: r.tags,
       content: r.content,
-    })),
-    total: results.length,
+      ...(r.tier ? { tier: r.tier } : {}),
+      ...(pattern ? { pattern: `Recurring pattern: seen ${pattern.occurrenceCount} times (pattern: ${pattern.id})` } : {}),
+    };
+  });
+
+  return {
+    results: enriched,
+    total: enriched.length,
   };
 }
