@@ -6,6 +6,19 @@ import type { ContextEntry } from "./markdown.js";
 export class ContextIndex {
   private db: DatabaseSync;
 
+  static assignTier(type: string, explicitTier?: string): "ephemeral" | "working" | "longterm" {
+    if (explicitTier) return explicitTier as "ephemeral" | "working" | "longterm";
+    switch (type) {
+      case "handoff":
+      case "progress":
+        return "ephemeral";
+      case "reference":
+        return "longterm";
+      default:
+        return "working";
+    }
+  }
+
   constructor(dbPath: string = DB_PATH) {
     ensureDirs();
     this.db = new DatabaseSync(dbPath, { allowExtension: true });
