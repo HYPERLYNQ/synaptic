@@ -9,7 +9,7 @@ export const contextListSchema = {
     .default(7)
     .describe("List entries from last N days"),
   type: z
-    .enum(["decision", "progress", "issue", "handoff", "insight", "reference", "git_commit"])
+    .enum(["decision", "progress", "issue", "handoff", "insight", "reference", "git_commit", "rule"])
     .optional()
     .describe("Filter by entry type"),
   include_archived: z
