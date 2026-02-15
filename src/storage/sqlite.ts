@@ -609,6 +609,98 @@ export class ContextIndex {
     return !!row;
   }
 
+  findSimilarIssues(embedding: Float32Array, days: number = 30, distanceThreshold: number = 0.5): ContextEntry[] {
+    // sqlite-vec distance: lower = more similar. ~0.5 distance ≈ ~0.75 cosine similarity for normalized vectors
+    const vecResults = this.searchVec(embedding, 20);
+    const matchingRowids = vecResults
+      .filter(r => r.distance <= distanceThreshold)
+      .map(r => r.rowid);
+
+    if (matchingRowids.length === 0) return [];
+
+    const entries = this.getByRowids(matchingRowids);
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - days);
+    const cutoffStr = cutoff.toISOString().slice(0, 10);
+
+    return entries.filter(e =>
+      e.type === "issue" && !e.archived && e.date >= cutoffStr
+    );
+  }
+
+  createOrUpdatePattern(label: string, entryIds: string[]): string {
+    // Check if any existing unresolved pattern overlaps with these entries
+    const patterns = this.db.prepare(
+      "SELECT id, entry_ids, occurrence_count, first_seen FROM patterns WHERE resolved = 0"
+    ).all() as Array<{ id: string; entry_ids: string; occurrence_count: number; first_seen: string }>;
+
+    const entryIdSet = new Set(entryIds);
+    for (const pat of patterns) {
+      const existing = JSON.parse(pat.entry_ids) as string[];
+      const overlap = existing.some(id => entryIdSet.has(id));
+      if (overlap) {
+        // Merge into existing pattern
+        const merged = Array.from(new Set([...existing, ...entryIds]));
+        const now = new Date().toISOString().slice(0, 10);
+        this.db.prepare(`
+          UPDATE patterns SET entry_ids = ?, occurrence_count = ?, last_seen = ?, label = ?
+          WHERE id = ?
+        `).run(JSON.stringify(merged), merged.length, now, label.slice(0, 80), pat.id);
+        return pat.id;
+      }
+    }
+
+    // Create new pattern
+    const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    const now = new Date().toISOString().slice(0, 10);
+    this.db.prepare(`
+      INSERT INTO patterns (id, label, entry_ids, occurrence_count, first_seen, last_seen)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(id, label.slice(0, 80), JSON.stringify(entryIds), entryIds.length, now, now);
+    return id;
+  }
+
+  getActivePatterns(): Array<{
+    id: string;
+    label: string;
+    entryIds: string[];
+    occurrenceCount: number;
+    firstSeen: string;
+    lastSeen: string;
+  }> {
+    const rows = this.db.prepare(
+      "SELECT * FROM patterns WHERE resolved = 0 AND occurrence_count >= 3 ORDER BY last_seen DESC"
+    ).all() as Array<Record<string, unknown>>;
+    return rows.map(r => ({
+      id: r.id as string,
+      label: r.label as string,
+      entryIds: JSON.parse(r.entry_ids as string) as string[],
+      occurrenceCount: r.occurrence_count as number,
+      firstSeen: r.first_seen as string,
+      lastSeen: r.last_seen as string,
+    }));
+  }
+
+  getPatternForEntry(entryId: string): { id: string; occurrenceCount: number } | null {
+    const rows = this.db.prepare(
+      "SELECT id, occurrence_count, entry_ids FROM patterns WHERE resolved = 0"
+    ).all() as Array<{ id: string; occurrence_count: number; entry_ids: string }>;
+    for (const row of rows) {
+      const ids = JSON.parse(row.entry_ids) as string[];
+      if (ids.includes(entryId)) {
+        return { id: row.id, occurrenceCount: row.occurrence_count };
+      }
+    }
+    return null;
+  }
+
+  resolvePattern(patternId: string): boolean {
+    const result = this.db.prepare(
+      "UPDATE patterns SET resolved = 1 WHERE id = ?"
+    ).run(patternId);
+    return Number(result.changes) > 0;
+  }
+
   close(): void {
     this.db.close();
   }
