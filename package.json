@@ -9,7 +9,9 @@
     "rebuild-index": "node build/scripts/rebuild-index.js"
   },
   "dependencies": {
+    "@huggingface/transformers": "^3.8.1",
     "@modelcontextprotocol/sdk": "^1.12.1",
+    "sqlite-vec": "^0.1.7-alpha.2",
     "zod": "^3.24.2"
   },
   "devDependencies": {
