@@ -108,6 +108,19 @@ async function main(): Promise<void> {
       // Don't block session start if consolidation detection fails
     }
 
+    // Recurring issue patterns
+    const patterns = index.getActivePatterns();
+    if (patterns.length > 0) {
+      lines.push("## Recurring Issues");
+      for (const pattern of patterns) {
+        const daySpan = Math.ceil(
+          (new Date(pattern.lastSeen).getTime() - new Date(pattern.firstSeen).getTime()) / (1000 * 60 * 60 * 24)
+        ) || 1;
+        lines.push(`- "${pattern.label}" — ${pattern.occurrenceCount} occurrences over ${daySpan} days (last: ${pattern.lastSeen})`);
+      }
+      lines.push("");
+    }
+
     // Maintenance summary
     const maintTotal = maintenance.decayed + maintenance.demoted + maintenance.promotedStable + maintenance.promotedFrequent;
     if (maintTotal > 0) {
