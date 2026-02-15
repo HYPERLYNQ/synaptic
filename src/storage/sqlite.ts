@@ -253,6 +253,7 @@ export class ContextIndex {
     this.db.exec("DROP TRIGGER IF EXISTS entries_ad");
     this.db.exec("DELETE FROM entries_fts");
     this.db.exec("DELETE FROM entries");
+    this.db.exec("DELETE FROM vec_entries");
     // Recreate triggers
     this.db.exec(`
       CREATE TRIGGER entries_ai AFTER INSERT ON entries BEGIN
