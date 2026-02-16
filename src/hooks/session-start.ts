@@ -130,6 +130,7 @@ async function main(): Promise<void> {
 
     // --- SECTION 5: Related context from git activity ---
     const budgetForRelated: string[] = [];
+    const budgetForCochanges: string[] = [];
     const cwd = process.cwd();
     if (isGitRepo(cwd)) {
       const recentFiles = getRecentlyChangedFiles(cwd);
@@ -150,6 +151,24 @@ async function main(): Promise<void> {
         } catch {
           // Don't block session start
         }
+
+        // Co-change suggestions
+        if (currentProject) {
+          const suggestions: string[] = [];
+          for (const file of recentFiles.slice(0, 5)) {
+            const cochanges = index.getCoChanges(currentProject, file, 3)
+              .filter(c => c.count >= 3 && !recentFiles.includes(c.file));
+            if (cochanges.length > 0) {
+              const pairs = cochanges.map(c => `${c.file} (${c.count}x)`).join(", ");
+              suggestions.push(`- ${file} → usually also changes: ${pairs}`);
+            }
+          }
+          if (suggestions.length > 0) {
+            budgetForCochanges.push("## Predictive context");
+            budgetForCochanges.push(...suggestions);
+            budgetForCochanges.push("");
+          }
+        }
       }
     }
 
@@ -166,7 +185,7 @@ async function main(): Promise<void> {
     }
 
     // --- Assemble within budget ---
-    const sections = [budgetForContext, budgetForHandoff, budgetForPatterns, budgetForRelated, budgetForMaint];
+    const sections = [budgetForContext, budgetForHandoff, budgetForPatterns, budgetForRelated, budgetForCochanges, budgetForMaint];
     for (const section of sections) {
       const sectionText = section.join("\n");
       if (charCount + sectionText.length <= TOKEN_BUDGET_CHARS) {
