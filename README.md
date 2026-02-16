@@ -391,7 +391,7 @@ Data is stored in SQLite with full-text search and vector similarity search. All
 
 <br>
 
-Interested in Synaptic for your team? **[Get in touch →](mailto:hyperlynq@outlook.com)**
+Interested in Synaptic for your team? **[Get in touch →](mailto:hyperlynq@gmail.com)**
 
 <br>
 
@@ -414,7 +414,7 @@ Copyright (c) 2026 HYPERLYNQ. All rights reserved.
 
 Synaptic is **source-available**. You can use it freely for personal and internal purposes. You may not copy, modify, redistribute, or create derivative works from the source code. See [LICENSE](LICENSE) for details.
 
-For commercial licensing, contact **[hyperlynq@outlook.com](mailto:hyperlynq@outlook.com)**.
+For commercial licensing, contact **[hyperlynq@gmail.com](mailto:hyperlynq@gmail.com)**.
 
 <br>
 
