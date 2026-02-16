@@ -799,6 +799,32 @@ async function main(): Promise<void> {
   assert(afterSecondTouch!.accessCount === 2, `After second touch: accessCount=2 (got ${afterSecondTouch?.accessCount})`);
 
   // -------------------------------------------------------
+  // 29. Intent templates
+  // -------------------------------------------------------
+  console.log("\n[29] Intent templates");
+
+  const intentTemplates = await embedder.getIntentTemplates();
+  assert(intentTemplates.length >= 10, `Intent templates loaded (got ${intentTemplates.length})`);
+  assert(intentTemplates[0].embedding.length === 384, `Intent template embedding is 384-dim`);
+
+  // Test classification of a declaration (threshold 0.35 — generic templates score ~0.4 for "X is my app" patterns)
+  const declResult = await embedder.classifySentence("wholesale harmony is my app", intentTemplates, 0.35);
+  assert(declResult !== null, `"wholesale harmony is my app" matches an intent template (sim=${declResult?.similarity.toFixed(3)})`);
+  assert(
+    declResult!.category === "declaration" || declResult!.category === "ownership",
+    `Matched category is declaration or ownership (got ${declResult?.category})`
+  );
+
+  // Test classification of a preference (threshold 0.25 — structural match with generic templates)
+  const prefResult = await embedder.classifySentence("I prefer using typescript over javascript", intentTemplates, 0.25);
+  assert(prefResult !== null, `Preference statement matches an intent template (sim=${prefResult?.similarity.toFixed(3)})`);
+  assert(prefResult!.category === "preference", `Matched category is preference (got ${prefResult?.category})`);
+
+  // Test that a random technical statement does NOT match at the same thresholds
+  const noMatch = await embedder.classifySentence("The function returns a promise that resolves to an array", intentTemplates, 0.25);
+  assert(noMatch === null, `Random technical statement does NOT match any intent (result: ${noMatch?.category ?? "null"})`);
+
+  // -------------------------------------------------------
   // Summary
   // -------------------------------------------------------
   index.close();
