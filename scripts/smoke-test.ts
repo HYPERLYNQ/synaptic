@@ -677,6 +677,33 @@ async function main(): Promise<void> {
   assert(chain.length === 2, `Chain has 2 entries (failure + resolution, got ${chain.length})`);
 
   // -------------------------------------------------------
+  // 25. Codebase DNA analysis
+  // -------------------------------------------------------
+  console.log("\n[25] Codebase DNA");
+
+  index.clearAll();
+
+  const { contextDna } = await import("../src/tools/context-dna.js");
+
+  const dnaResult = await contextDna(
+    { commits: 50, repo_path: PROJECT_DIR },
+    index,
+    embedder
+  );
+
+  assert(dnaResult.success === true, "DNA analysis succeeded");
+  assert(dnaResult.commitsAnalyzed! > 0, `Analyzed ${dnaResult.commitsAnalyzed} commits`);
+  assert(dnaResult.report!.includes("Codebase DNA"), "Report contains header");
+  assert(dnaResult.report!.includes("Hotspots:") || dnaResult.report!.includes("Layers:"),
+    "Report contains analysis sections");
+
+  const dnaEntries = index.list({ days: 1 }).filter(e =>
+    e.type === "reference" && e.tags.includes("codebase-dna")
+  );
+  assert(dnaEntries.length === 1, `DNA saved as reference entry (got ${dnaEntries.length})`);
+  assert(dnaEntries[0].tier === "longterm", "DNA entry has longterm tier");
+
+  // -------------------------------------------------------
   // Summary
   // -------------------------------------------------------
   index.close();
