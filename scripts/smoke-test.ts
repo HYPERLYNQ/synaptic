@@ -379,6 +379,32 @@ async function main(): Promise<void> {
   assert(bm25Results[0].content.includes("PostgreSQL"), `BM25 top result is about PostgreSQL`);
 
   // -------------------------------------------------------
+  // 13. Test v0.5.0 schema migration (project, session_id, agent_id columns)
+  // -------------------------------------------------------
+  console.log("\n[13] v0.5.0 schema migration");
+
+  const colCheck = (rawDbInst: InstanceType<typeof DatabaseSync>, col: string) => {
+    const cols = rawDbInst.prepare("PRAGMA table_info(entries)").all() as Array<{ name: string }>;
+    return cols.some(c => c.name === col);
+  };
+
+  const rawDb3 = new DatabaseSync(DB_PATH);
+  assert(colCheck(rawDb3, "project"), "entries table has 'project' column");
+  assert(colCheck(rawDb3, "session_id"), "entries table has 'session_id' column");
+  assert(colCheck(rawDb3, "agent_id"), "entries table has 'agent_id' column");
+
+  // Check file_pairs table exists
+  const tables = rawDb3.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='file_pairs'").all();
+  assert(tables.length === 1, "file_pairs table exists");
+
+  // Check indexes
+  const indexes = rawDb3.prepare("SELECT name FROM sqlite_master WHERE type='index'").all() as Array<{ name: string }>;
+  assert(indexes.some(i => i.name === "idx_entries_project"), "idx_entries_project index exists");
+  assert(indexes.some(i => i.name === "idx_entries_session"), "idx_entries_session index exists");
+  assert(indexes.some(i => i.name === "idx_file_pairs_lookup"), "idx_file_pairs_lookup index exists");
+  rawDb3.close();
+
+  // -------------------------------------------------------
   // Summary
   // -------------------------------------------------------
   index.close();
