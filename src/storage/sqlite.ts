@@ -135,12 +135,35 @@ export class ContextIndex {
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_entries_rule_label ON entries(label) WHERE type = 'rule'"
       );
     }
+
+    // v0.5.0 migration: project, session_id, agent_id columns
+    const hasProject = columns.some((col) => col.name === "project");
+    if (!hasProject) {
+      this.db.exec("ALTER TABLE entries ADD COLUMN project TEXT DEFAULT NULL");
+      this.db.exec("ALTER TABLE entries ADD COLUMN session_id TEXT DEFAULT NULL");
+      this.db.exec("ALTER TABLE entries ADD COLUMN agent_id TEXT DEFAULT NULL");
+      this.db.exec("CREATE INDEX IF NOT EXISTS idx_entries_project ON entries(project)");
+      this.db.exec("CREATE INDEX IF NOT EXISTS idx_entries_session ON entries(session_id)");
+    }
+
+    // v0.5.0: file_pairs table for co-change tracking
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS file_pairs (
+        project TEXT NOT NULL,
+        file_a TEXT NOT NULL,
+        file_b TEXT NOT NULL,
+        co_change_count INTEGER DEFAULT 1,
+        last_seen TEXT NOT NULL,
+        PRIMARY KEY (project, file_a, file_b)
+      )
+    `);
+    this.db.exec("CREATE INDEX IF NOT EXISTS idx_file_pairs_lookup ON file_pairs(project, file_a)");
   }
 
-  insert(entry: ContextEntry): number {
+  insert(entry: ContextEntry & { project?: string; sessionId?: string; agentId?: string }): number {
     const stmt = this.db.prepare(`
-      INSERT OR REPLACE INTO entries (id, date, time, type, tags, content, source_file, tier, access_count, last_accessed, pinned, archived, label)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT OR REPLACE INTO entries (id, date, time, type, tags, content, source_file, tier, access_count, last_accessed, pinned, archived, label, project, session_id, agent_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     stmt.run(
       entry.id,
@@ -155,7 +178,10 @@ export class ContextIndex {
       entry.lastAccessed ?? null,
       entry.pinned ? 1 : 0,
       entry.archived ? 1 : 0,
-      (entry as any).label ?? null
+      (entry as any).label ?? null,
+      entry.project ?? null,
+      entry.sessionId ?? null,
+      entry.agentId ?? null
     );
     const row = this.db.prepare("SELECT last_insert_rowid() as rowid").get() as Record<string, unknown>;
     return row.rowid as number;
@@ -199,6 +225,7 @@ export class ContextIndex {
     const sql = `
       SELECT e.id, e.date, e.time, e.type, e.tags, e.content, e.source_file,
              e.tier, e.access_count, e.last_accessed, e.pinned, e.archived,
+             e.project, e.session_id, e.agent_id,
              rank
       FROM entries_fts
       JOIN entries e ON entries_fts.rowid = e.rowid
@@ -223,6 +250,9 @@ export class ContextIndex {
       lastAccessed: row.last_accessed as string | null,
       pinned: !!(row.pinned as number),
       archived: !!(row.archived as number),
+      project: row.project as string | null,
+      sessionId: row.session_id as string | null,
+      agentId: row.agent_id as string | null,
     }));
   }
 
@@ -251,7 +281,7 @@ export class ContextIndex {
     if (rowids.length === 0) return [];
     const placeholders = rowids.map(() => "?").join(", ");
     const stmt = this.db.prepare(`
-      SELECT rowid, id, date, time, type, tags, content, source_file, tier, access_count, last_accessed, pinned, archived
+      SELECT rowid, id, date, time, type, tags, content, source_file, tier, access_count, last_accessed, pinned, archived, project, session_id, agent_id
       FROM entries
       WHERE rowid IN (${placeholders})
     `);
@@ -269,6 +299,9 @@ export class ContextIndex {
       lastAccessed: row.last_accessed as string | null,
       pinned: !!(row.pinned as number),
       archived: !!(row.archived as number),
+      project: row.project as string | null,
+      sessionId: row.session_id as string | null,
+      agentId: row.agent_id as string | null,
     }));
   }
 
@@ -293,7 +326,7 @@ export class ContextIndex {
     const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
 
     const sql = `
-      SELECT id, date, time, type, tags, content, source_file, tier, access_count, last_accessed, pinned, archived
+      SELECT id, date, time, type, tags, content, source_file, tier, access_count, last_accessed, pinned, archived, project, session_id, agent_id
       FROM entries
       ${where}
       ORDER BY date DESC, time DESC
@@ -315,6 +348,9 @@ export class ContextIndex {
       lastAccessed: row.last_accessed as string | null,
       pinned: !!(row.pinned as number),
       archived: !!(row.archived as number),
+      project: row.project as string | null,
+      sessionId: row.session_id as string | null,
+      agentId: row.agent_id as string | null,
     }));
   }
 
@@ -386,6 +422,7 @@ export class ContextIndex {
     this.db.exec("DELETE FROM entries");
     this.db.exec("DELETE FROM vec_entries");
     this.db.exec("DELETE FROM patterns");
+    this.db.exec("DELETE FROM file_pairs");
     // Recreate triggers
     this.db.exec(`
       CREATE TRIGGER entries_ai AFTER INSERT ON entries BEGIN
