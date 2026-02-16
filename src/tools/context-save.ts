@@ -2,6 +2,8 @@ import { z } from "zod";
 import { appendEntry } from "../storage/markdown.js";
 import { ContextIndex } from "../storage/sqlite.js";
 import { Embedder } from "../storage/embedder.js";
+import { getCurrentProject } from "../server.js";
+import { getSessionId } from "../storage/session.js";
 
 export const contextSaveSchema = {
   content: z.string().describe("The context content to save"),
@@ -21,10 +23,14 @@ export const contextSaveSchema = {
     .optional()
     .default(false)
     .describe("Pin entry to prevent auto-decay"),
+  agent_id: z
+    .string()
+    .optional()
+    .describe("Optional agent identifier (defaults to 'main')"),
 };
 
 export async function contextSave(
-  args: { content: string; type: string; tags: string[]; tier?: string; pinned?: boolean },
+  args: { content: string; type: string; tags: string[]; tier?: string; pinned?: boolean; agent_id?: string },
   index: ContextIndex,
   embedder: Embedder
 ): Promise<{ success: boolean; id: string; date: string; time: string; tier: string; pattern_detected?: string }> {
@@ -32,7 +38,15 @@ export async function contextSave(
   const entry = appendEntry(args.content, args.type, args.tags);
   entry.tier = tier;
   entry.pinned = args.pinned ?? false;
-  const rowid = index.insert(entry);
+
+  // Enrich with project, session, and agent metadata
+  const enrichedEntry = {
+    ...entry,
+    project: getCurrentProject() ?? undefined,
+    sessionId: getSessionId(),
+    agentId: args.agent_id ?? "main",
+  };
+  const rowid = index.insert(enrichedEntry);
 
   const embedding = await embedder.embed(args.content);
   index.insertVec(rowid, embedding);

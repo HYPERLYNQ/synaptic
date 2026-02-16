@@ -14,6 +14,9 @@ export interface ContextEntry {
   lastAccessed?: string | null;
   pinned?: boolean;
   archived?: boolean;
+  project?: string | null;
+  sessionId?: string | null;
+  agentId?: string | null;
 }
 
 function generateId(): string {
