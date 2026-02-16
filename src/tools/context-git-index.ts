@@ -3,6 +3,7 @@ import { ContextIndex } from "../storage/sqlite.js";
 import { Embedder } from "../storage/embedder.js";
 import { appendEntry } from "../storage/markdown.js";
 import { getGitLog, formatCommitAsContent, isGitRepo } from "../storage/git.js";
+import { getCurrentProject } from "../server.js";
 
 export const contextGitIndexSchema = {
   repo_path: z
@@ -57,6 +58,17 @@ export async function contextGitIndex(
     const embedding = await embedder.embed(content);
     index.insertVec(rowid, embedding);
     indexed++;
+
+    // Generate co-change pairs (skip commits with 20+ files — too noisy)
+    const project = getCurrentProject();
+    if (project && commit.files.length >= 2 && commit.files.length < 20) {
+      const filePaths = commit.files.map(f => f.path);
+      for (let i = 0; i < filePaths.length; i++) {
+        for (let j = i + 1; j < filePaths.length; j++) {
+          index.upsertFilePair(project, filePaths[i], filePaths[j], commit.date);
+        }
+      }
+    }
   }
 
   return { indexed, skipped, repo: repoPath };

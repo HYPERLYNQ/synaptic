@@ -504,6 +504,23 @@ async function main(): Promise<void> {
   assert(highStillThere !== undefined, `High-access entry NOT archived after 4 days`);
 
   // -------------------------------------------------------
+  // 18. Test co-change pair generation
+  // -------------------------------------------------------
+  console.log("\n[18] Co-change pairs");
+
+  index.clearAll();
+
+  // Simulate upsertFilePair
+  index.upsertFilePair("test-project", "src/a.ts", "src/b.ts", "2026-02-15");
+  index.upsertFilePair("test-project", "src/a.ts", "src/b.ts", "2026-02-15");
+  index.upsertFilePair("test-project", "src/a.ts", "src/c.ts", "2026-02-15");
+
+  const cochanges = index.getCoChanges("test-project", "src/a.ts", 10);
+  assert(cochanges.length === 2, `getCoChanges returned 2 pairs (got ${cochanges.length})`);
+  assert(cochanges[0].file === "src/b.ts" && cochanges[0].count === 2, `First pair is b.ts with count 2`);
+  assert(cochanges[1].file === "src/c.ts" && cochanges[1].count === 1, `Second pair is c.ts with count 1`);
+
+  // -------------------------------------------------------
   // Summary
   // -------------------------------------------------------
   index.close();
