@@ -14,6 +14,7 @@ import { contextResolvePattern, contextResolvePatternSchema } from "./tools/cont
 import { contextSaveRule, contextSaveRuleSchema } from "./tools/context-save-rule.js";
 import { contextDeleteRule, contextDeleteRuleSchema } from "./tools/context-delete-rule.js";
 import { contextListRules } from "./tools/context-list-rules.js";
+import { contextSession, contextSessionSchema } from "./tools/context-session.js";
 
 let _embedder: Embedder;
 let _currentProject: string | null = null;
@@ -154,6 +155,18 @@ export function createServer(): McpServer {
     {},
     async () => {
       const result = contextListRules(index);
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+      };
+    }
+  );
+
+  server.tool(
+    "context_session",
+    "List all entries from the current or specified session. Use for agent context sharing.",
+    contextSessionSchema,
+    async (args) => {
+      const result = contextSession(args, index);
       return {
         content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
       };

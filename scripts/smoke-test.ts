@@ -521,6 +521,27 @@ async function main(): Promise<void> {
   assert(cochanges[1].file === "src/c.ts" && cochanges[1].count === 1, `Second pair is c.ts with count 1`);
 
   // -------------------------------------------------------
+  // 19. Test context_session tool
+  // -------------------------------------------------------
+  console.log("\n[19] context_session");
+
+  index.clearAll();
+
+  // Insert entries with session_id
+  const sessionEntries = [
+    makeEntry({ type: "decision", content: "Session decision 1" }),
+    makeEntry({ type: "insight", content: "Session insight 1" }),
+    makeEntry({ type: "progress", content: "Different session progress" }),
+  ];
+  index.insert({ ...sessionEntries[0], sessionId: "sess-abc" });
+  index.insert({ ...sessionEntries[1], sessionId: "sess-abc" });
+  index.insert({ ...sessionEntries[2], sessionId: "sess-xyz" });
+
+  const sessionResults = index.listBySession("sess-abc");
+  assert(sessionResults.length === 2, `listBySession returned 2 entries for sess-abc (got ${sessionResults.length})`);
+  assert(sessionResults.every(e => e.sessionId === "sess-abc"), `All results have session_id = sess-abc`);
+
+  // -------------------------------------------------------
   // Summary
   // -------------------------------------------------------
   index.close();

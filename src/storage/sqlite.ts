@@ -868,6 +868,46 @@ export class ContextIndex {
     }));
   }
 
+  listBySession(
+    sessionId: string,
+    opts: { type?: string } = {}
+  ): ContextEntry[] {
+    const conditions = ["session_id = ?"];
+    const params: (string | number)[] = [sessionId];
+
+    if (opts.type) {
+      conditions.push("type = ?");
+      params.push(opts.type);
+    }
+
+    const sql = `
+      SELECT id, date, time, type, tags, content, source_file, tier, access_count,
+             last_accessed, pinned, archived, project, session_id, agent_id
+      FROM entries
+      WHERE ${conditions.join(" AND ")}
+      ORDER BY date ASC, time ASC
+    `;
+
+    const rows = this.db.prepare(sql).all(...params) as Record<string, unknown>[];
+    return rows.map((row) => ({
+      id: row.id as string,
+      date: row.date as string,
+      time: row.time as string,
+      type: row.type as string,
+      tags: (row.tags as string).split(", ").filter(Boolean),
+      content: row.content as string,
+      sourceFile: row.source_file as string,
+      tier: row.tier as ContextEntry["tier"],
+      accessCount: row.access_count as number,
+      lastAccessed: row.last_accessed as string | null,
+      pinned: !!(row.pinned as number),
+      archived: !!(row.archived as number),
+      project: row.project as string | null,
+      sessionId: row.session_id as string | null,
+      agentId: row.agent_id as string | null,
+    }));
+  }
+
   close(): void {
     this.db.close();
   }
