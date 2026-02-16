@@ -554,6 +554,44 @@ async function main(): Promise<void> {
   assert(categoryTemplates.length > 0, `Category templates loaded (got ${categoryTemplates.length})`);
 
   // -------------------------------------------------------
+  // 21. Test Wave 3: Intelligence features
+  // -------------------------------------------------------
+  console.log("\n[21] Wave 3 intelligence features");
+
+  index.clearAll();
+
+  // Test pending rule detection
+  const pendingEntry = makeEntry({ type: "insight", content: "Always use bun instead of npm" });
+  pendingEntry.tags = ["pending_rule", "proposed-label:always-use-bun"];
+  index.insert({ ...pendingEntry, project: "test-project" });
+
+  const allEntries = index.list({ days: 1 });
+  const pendingFound = allEntries.filter(e => e.tags.includes("pending_rule"));
+  assert(pendingFound.length === 1, `Found 1 pending rule entry (got ${pendingFound.length})`);
+
+  // Test conflict entry
+  const conflictEntry = makeEntry({ type: "insight", content: 'Conflict: new correction "use npm" may contradict rule "always-use-bun"' });
+  conflictEntry.tags = ["rule_conflict", "conflicts-with:always-use-bun"];
+  index.insert({ ...conflictEntry, project: "test-project" });
+
+  const conflicts = index.list({ days: 1 }).filter(e => e.tags.includes("rule_conflict"));
+  assert(conflicts.length === 1, `Found 1 conflict entry (got ${conflicts.length})`);
+  assert(conflicts[0].content.includes("Conflict:"), `Conflict entry has correct format`);
+
+  // Test co-change filtering (count >= 3 threshold)
+  index.clearAll();
+  index.upsertFilePair("test-proj", "src/a.ts", "src/b.ts", "2026-02-15");
+  index.upsertFilePair("test-proj", "src/a.ts", "src/b.ts", "2026-02-15");
+  // Only 2 co-changes — should NOT appear at threshold >= 3
+  const cochanges2 = index.getCoChanges("test-proj", "src/a.ts", 10).filter(c => c.count >= 3);
+  assert(cochanges2.length === 0, `No co-changes at threshold 3 with only 2 occurrences`);
+
+  // Add one more — now count = 3, should appear
+  index.upsertFilePair("test-proj", "src/a.ts", "src/b.ts", "2026-02-15");
+  const cochanges3 = index.getCoChanges("test-proj", "src/a.ts", 10).filter(c => c.count >= 3);
+  assert(cochanges3.length === 1, `1 co-change at threshold 3 after 3 occurrences`);
+
+  // -------------------------------------------------------
   // Summary
   // -------------------------------------------------------
   index.close();
