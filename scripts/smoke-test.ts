@@ -642,6 +642,41 @@ async function main(): Promise<void> {
   assert(true, "GitWatcher with non-git dir is no-op");
 
   // -------------------------------------------------------
+  // 24. Pre-commit failure entries and chain linking
+  // -------------------------------------------------------
+  console.log("\n[24] Pre-commit failure entries");
+
+  index.clearAll();
+
+  // Test failure entry structure
+  const failureEntry = makeEntry({
+    type: "issue",
+    content: "Pre-commit failure: `npm run test` exited with error\nFiles: src/auth.ts\nError: Expected 3 to equal 4",
+    tags: ["failure", "pre-commit", "cmd:test", "chain:abcd1234", "file:src/auth.ts"],
+  });
+  failureEntry.tier = "working";
+  const failRowid = index.insert(failureEntry);
+  assert(failRowid > 0, "Failure entry inserted successfully");
+
+  const failures = index.list({ days: 1 }).filter(e =>
+    e.tags.includes("failure") && e.tags.includes("pre-commit")
+  );
+  assert(failures.length === 1, `Found 1 pre-commit failure entry (got ${failures.length})`);
+  assert(failures[0].tags.includes("chain:abcd1234"), "Failure has chain tag");
+  assert(failures[0].tags.includes("file:src/auth.ts"), "Failure has file tag");
+
+  const resolveEntry = makeEntry({
+    type: "progress",
+    content: "Resolved: src/auth.ts now passes pre-commit checks",
+    tags: ["failure-resolved", "pre-commit", "chain:abcd1234", "file:src/auth.ts"],
+  });
+  resolveEntry.tier = "ephemeral";
+  index.insert(resolveEntry);
+
+  const chain = index.list({ days: 1 }).filter(e => e.tags.includes("chain:abcd1234"));
+  assert(chain.length === 2, `Chain has 2 entries (failure + resolution, got ${chain.length})`);
+
+  // -------------------------------------------------------
   // Summary
   // -------------------------------------------------------
   index.close();
