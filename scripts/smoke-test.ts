@@ -447,6 +447,33 @@ async function main(): Promise<void> {
   assert(enrichedEntry!.project === "test-project", `Entry has project "test-project" (got "${enrichedEntry?.project}")`);
 
   // -------------------------------------------------------
+  // 16. Test confidence scoring in search
+  // -------------------------------------------------------
+  console.log("\n[16] Confidence scoring");
+
+  // Create two entries: one with high access count, one with zero
+  index.clearAll();
+  const highAccess = makeEntry({ type: "decision", content: "Frequently accessed decision about API design patterns" });
+  const lowAccess = makeEntry({ type: "decision", content: "Never accessed decision about API caching strategy" });
+  highAccess.accessCount = 10;
+  lowAccess.accessCount = 0;
+
+  const haRowid = index.insert(highAccess);
+  const laRowid = index.insert(lowAccess);
+  const haEmb = await embedder.embed(highAccess.content);
+  const laEmb = await embedder.embed(lowAccess.content);
+  index.insertVec(haRowid, haEmb);
+  index.insertVec(laRowid, laEmb);
+
+  const qEmb = await embedder.embed("API design decision");
+  const confResults = index.hybridSearch("API design decision", qEmb, { limit: 10 });
+  assert(confResults.length === 2, `Confidence search returned 2 results`);
+  assert(
+    confResults[0].id === highAccess.id,
+    `High-access entry ranked first (got ${confResults[0].id === highAccess.id})`
+  );
+
+  // -------------------------------------------------------
   // Summary
   // -------------------------------------------------------
   index.close();
