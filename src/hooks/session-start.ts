@@ -7,7 +7,8 @@
  * 2. Recent context (last 3 days, compact format, same-project boosted)
  * 3. Most recent handoff note (1 only)
  * 4. Recurring patterns
- * 5. Maintenance summary (only if something changed)
+ * 5. Related context (from recently changed git files)
+ * 6. Maintenance summary (only if something changed)
  */
 
 import { ContextIndex } from "../storage/sqlite.js";
@@ -16,6 +17,7 @@ import { runMaintenance } from "../storage/maintenance.js";
 import { Embedder } from "../storage/embedder.js";
 import { contextGitIndex } from "../tools/context-git-index.js";
 import { detectProject } from "../storage/project.js";
+import { getRecentlyChangedFiles, isGitRepo } from "../storage/git.js";
 
 const TOKEN_BUDGET_CHARS = 4000; // ~1000 tokens
 
@@ -116,7 +118,32 @@ async function main(): Promise<void> {
       budgetForPatterns.push("");
     }
 
-    // --- SECTION 5: Maintenance (only if something happened) ---
+    // --- SECTION 5: Related context from git activity ---
+    const budgetForRelated: string[] = [];
+    const cwd = process.cwd();
+    if (isGitRepo(cwd)) {
+      const recentFiles = getRecentlyChangedFiles(cwd);
+      if (recentFiles.length > 0) {
+        // Search for entries related to recently changed files
+        const fileQuery = recentFiles.slice(0, 5).join(" ");
+        try {
+          const related = index.search(fileQuery, { limit: 3 })
+            .filter(e => e.type !== "handoff" && e.type !== "git_commit");
+          if (related.length > 0) {
+            budgetForRelated.push("## Related context");
+            for (const r of related) {
+              const ago = Math.floor((Date.now() - new Date(r.date).getTime()) / (1000 * 60 * 60 * 24));
+              budgetForRelated.push(`- [${ago}d ago] ${r.content.slice(0, 120)}`);
+            }
+            budgetForRelated.push("");
+          }
+        } catch {
+          // Don't block session start
+        }
+      }
+    }
+
+    // --- SECTION 6: Maintenance (only if something happened) ---
     const budgetForMaint: string[] = [];
     const maintTotal = maintenance.decayed + maintenance.demoted + maintenance.promotedStable + maintenance.promotedFrequent;
     if (maintTotal > 0) {
@@ -129,7 +156,7 @@ async function main(): Promise<void> {
     }
 
     // --- Assemble within budget ---
-    const sections = [budgetForContext, budgetForHandoff, budgetForPatterns, budgetForMaint];
+    const sections = [budgetForContext, budgetForHandoff, budgetForPatterns, budgetForRelated, budgetForMaint];
     for (const section of sections) {
       const sectionText = section.join("\n");
       if (charCount + sectionText.length <= TOKEN_BUDGET_CHARS) {
