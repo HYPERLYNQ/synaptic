@@ -3,6 +3,7 @@ import { z } from "zod";
 import { ContextIndex } from "./storage/sqlite.js";
 import { Embedder } from "./storage/embedder.js";
 import { ensureDirs } from "./storage/paths.js";
+import { detectProject } from "./storage/project.js";
 import { contextSave, contextSaveSchema } from "./tools/context-save.js";
 import { contextSearch, contextSearchSchema } from "./tools/context-search.js";
 import { contextList, contextListSchema } from "./tools/context-list.js";
@@ -15,13 +16,19 @@ import { contextDeleteRule, contextDeleteRuleSchema } from "./tools/context-dele
 import { contextListRules } from "./tools/context-list-rules.js";
 
 let _embedder: Embedder;
+let _currentProject: string | null = null;
 
 export function getEmbedder(): Embedder {
   return _embedder;
 }
 
+export function getCurrentProject(): string | null {
+  return _currentProject;
+}
+
 export function createServer(): McpServer {
   ensureDirs();
+  _currentProject = detectProject();
   const index = new ContextIndex();
   _embedder = new Embedder();
   const embedder = _embedder;
