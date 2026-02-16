@@ -18,6 +18,7 @@ export class Embedder {
   private cache = new Map<string, Float32Array>();
   private directiveTemplates: TemplateEmbedding[] | null = null;
   private categoryTemplates: TemplateEmbedding[] | null = null;
+  private intentTemplates: TemplateEmbedding[] | null = null;
 
   /** Pre-load the model so first real query is fast. */
   async warmup(): Promise<void> {
@@ -99,6 +100,38 @@ export class Embedder {
       this.categoryTemplates.push({ ...c, embedding });
     }
     return this.categoryTemplates;
+  }
+
+  /** Pre-computed intent templates for autonomous capture */
+  async getIntentTemplates(): Promise<TemplateEmbedding[]> {
+    if (this.intentTemplates) return this.intentTemplates;
+
+    const intents = [
+      { category: "declaration", text: "this is my project" },
+      { category: "declaration", text: "that's my app" },
+      { category: "declaration", text: "my app is called" },
+      { category: "declaration", text: "I built this" },
+      { category: "declaration", text: "this is called my tool" },
+      { category: "identity", text: "my name is" },
+      { category: "identity", text: "my username is" },
+      { category: "identity", text: "my account name is" },
+      { category: "preference", text: "I like using this tool" },
+      { category: "preference", text: "I usually do it this way" },
+      { category: "preference", text: "I prefer this approach" },
+      { category: "preference", text: "I prefer using this over that" },
+      { category: "frustration", text: "this keeps happening over and over" },
+      { category: "frustration", text: "why does this always break" },
+      { category: "ownership", text: "this belongs to me" },
+      { category: "ownership", text: "I own this repository" },
+      { category: "ownership", text: "this is my repo" },
+    ];
+
+    this.intentTemplates = [];
+    for (const i of intents) {
+      const embedding = await this.embed(i.text);
+      this.intentTemplates.push({ ...i, embedding });
+    }
+    return this.intentTemplates;
   }
 
   /** Classify a sentence against templates, return best match if above threshold */
