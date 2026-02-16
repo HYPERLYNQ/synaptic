@@ -833,6 +833,41 @@ export class ContextIndex {
     return true;
   }
 
+  upsertFilePair(project: string, fileA: string, fileB: string, date: string): void {
+    // Ensure consistent ordering (a < b) to avoid duplicates
+    const [f1, f2] = fileA < fileB ? [fileA, fileB] : [fileB, fileA];
+    this.db.prepare(`
+      INSERT INTO file_pairs (project, file_a, file_b, co_change_count, last_seen)
+      VALUES (?, ?, ?, 1, ?)
+      ON CONFLICT(project, file_a, file_b) DO UPDATE SET
+        co_change_count = co_change_count + 1,
+        last_seen = ?
+    `).run(project, f1, f2, date, date);
+  }
+
+  getCoChanges(
+    project: string,
+    file: string,
+    limit: number = 10
+  ): Array<{ file: string; count: number; lastSeen: string }> {
+    const rows = this.db.prepare(`
+      SELECT
+        CASE WHEN file_a = ? THEN file_b ELSE file_a END as paired_file,
+        co_change_count,
+        last_seen
+      FROM file_pairs
+      WHERE project = ? AND (file_a = ? OR file_b = ?)
+      ORDER BY co_change_count DESC
+      LIMIT ?
+    `).all(file, project, file, file, limit) as Array<Record<string, unknown>>;
+
+    return rows.map(r => ({
+      file: r.paired_file as string,
+      count: r.co_change_count as number,
+      lastSeen: r.last_seen as string,
+    }));
+  }
+
   close(): void {
     this.db.close();
   }
