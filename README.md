@@ -1,72 +1,126 @@
-# Synaptic
+<div align="center">
 
-**Give Claude a memory that lasts.**
+```
+ ███████╗██╗   ██╗███╗   ██╗ █████╗ ██████╗ ████████╗██╗ ██████╗
+ ██╔════╝╚██╗ ██╔╝████╗  ██║██╔══██╗██╔══██╗╚══██╔══╝██║██╔════╝
+ ███████╗ ╚████╔╝ ██╔██╗ ██║███████║██████╔╝   ██║   ██║██║
+ ╚════██║  ╚██╔╝  ██║╚██╗██║██╔══██║██╔═══╝    ██║   ██║██║
+ ███████║   ██║   ██║ ╚████║██║  ██║██║        ██║   ██║╚██████╗
+ ╚══════╝   ╚═╝   ╚═╝  ╚═══╝╚═╝  ╚═╝╚═╝        ╚═╝   ╚═╝ ╚═════╝
+```
 
-Every time you start a new Claude Code session, Claude has amnesia — it doesn't know what you worked on yesterday, what decisions you made, or what bugs you ran into. Synaptic fixes that. It's a local plugin that saves context across sessions, so Claude picks up where you left off.
+### Persistent memory for Claude Code
 
-Everything runs on your machine. No cloud services, no API keys, no data sent anywhere.
+**Claude forgets everything between sessions. Synaptic fixes that.**
+
+[![Version](https://img.shields.io/badge/version-0.6.0-blue)](https://github.com/HYPERLYNQ/synaptic)
+[![Tests](https://img.shields.io/badge/tests-130%20passing-brightgreen)](https://github.com/HYPERLYNQ/synaptic)
+[![Node](https://img.shields.io/badge/node-22%2B-339933)](https://nodejs.org)
+[![License](https://img.shields.io/badge/license-source--available-orange)](LICENSE)
+
+[Getting Started](#getting-started) · [Features](#features) · [How It Works](#how-it-works) · [Enterprise](#enterprise)
+
+</div>
+
+<br>
+
+Every time you start a new Claude Code session, Claude doesn't remember what you worked on yesterday, what decisions you made, or what bugs you hit.
+
+Synaptic gives Claude a **persistent memory** that carries across sessions. Decisions, insights, bug fixes, project patterns — saved locally and surfaced automatically when Claude starts up.
+
+No cloud. No API keys. Everything stays on your machine.
+
+<br>
 
 ---
 
-## The Problem
+<br>
 
-Imagine you spend an hour with Claude debugging a tricky authentication issue. You figure out the fix, close the terminal, and come back the next day. Claude has no idea any of that happened. You explain the same context again, maybe even hit the same dead ends.
+## Why Not Just Use Claude's Built-In Memory?
 
-Synaptic solves this by automatically saving what Claude learns during each session and feeding it back at the start of the next one.
+Claude Code already has a few memory features. Here's how Synaptic is different.
 
-## How It Works
+<br>
 
-Synaptic runs as an **MCP server** — that's the standard way to give Claude extra capabilities. Think of it like a plugin. Once installed, Claude gets access to tools for saving and retrieving memories, and three things happen automatically:
+### CLAUDE.md
 
-1. **When Claude starts** — It receives a briefing: recent context, your rules, any recurring problems, what you were working on last
-2. **During the session** — Claude can save decisions, insights, and progress as it works
-3. **When Claude finishes** — A handoff note is saved summarizing what happened, so the next session has context
+`CLAUDE.md` is a file you write by hand with project instructions. Claude reads it at the start of each session. It's great for static rules like "use tabs" or "run pytest."
 
-All the data lives in a SQLite database on your machine. Search works two ways: keyword matching (like `ctrl+F`) and semantic similarity (finding entries that *mean* similar things, even if they use different words).
+But it doesn't capture anything that happens *during* a session — the bugs you found, the decisions you made, the dead ends you explored. When you close the terminal, all of that is gone.
+
+<br>
+
+### Auto-Compacting
+
+When Claude runs out of context window, it compresses the conversation to make room. This loses detail and nuance.
+
+Synaptic's **PreCompact hook** runs *before* compression happens. It saves the important parts to permanent storage. After compacting, Claude still has access to what mattered.
+
+<br>
+
+### Auto-Memory
+
+Claude's auto-memory (`~/.claude/memory/`) saves short notes to files. But there's no real search, no semantic understanding, no awareness of which notes are related, and no way for old notes to expire naturally. It's a flat list that grows forever.
+
+<br>
+
+### The Comparison
+
+| | CLAUDE.md | Auto Memory | **Synaptic** |
+|:---|:---|:---|:---|
+| What it stores | Static instructions | Short notes | Typed, tagged, tiered entries |
+| Search | None | Filename only | Keyword + semantic similarity |
+| Cross-session | Only what you manually write | Basic notes | Handoffs, chains, failure history |
+| Git awareness | None | None | Commits, co-changes, codebase DNA |
+| Memory cleanup | Manual | Grows forever | Auto-decay by tier |
+| Pattern detection | None | None | Tracks recurring failures |
+
+<br>
+
+**Synaptic doesn't replace `CLAUDE.md`** — it complements it. Use `CLAUDE.md` for static project instructions. Use Synaptic for the living, evolving knowledge that builds up as you work.
+
+<br>
 
 ---
+
+<br>
 
 ## Getting Started
 
 ### What You Need
 
-- **Node.js 22 or newer** — Synaptic uses Node's built-in SQLite support, which was added in v22
-- **Claude Code** — The CLI tool from Anthropic (not the web chat)
+- **Node.js 22+** — uses Node's built-in SQLite
+- **Claude Code** — Anthropic's CLI tool
 
-### Installation
+<br>
+
+### Install
 
 ```bash
-# 1. Clone the project
-git clone <repo-url> synaptic
+git clone https://github.com/HYPERLYNQ/synaptic.git
 cd synaptic
-
-# 2. Install dependencies
 npm install
-
-# 3. Build (compiles TypeScript to JavaScript)
 npm run build
-
-# 4. Set everything up automatically
 npx synaptic init
 ```
 
-That last command detects your environment and configures Claude Code to use Synaptic. It works on Linux, macOS, and WSL (Windows Subsystem for Linux).
+That's it. The `init` command auto-detects your environment (Linux, macOS, WSL) and configures everything:
 
-Here's what `init` does:
-- Registers Synaptic as an MCP server so Claude can use its tools
-- Installs three hooks so Claude automatically loads/saves context
-- Sets up a git pre-commit hook that captures test failures into memory
-- Creates a `.synaptic/` directory in your project
+- **MCP server** — so Claude can use Synaptic's tools
+- **3 lifecycle hooks** — auto-load on start, preserve on compress, save on stop
+- **Git pre-commit hook** — captures test/lint failures into memory
+- **Project directory** — `.synaptic/` for local config
 
-If you only want the server and hooks (no git hook, no project dir):
+> Skip git hook and project dir with `npx synaptic init --global`
 
-```bash
-npx synaptic init --global
-```
+<br>
 
-### Manual Setup (if you prefer)
+<details>
+<summary><strong>Manual setup</strong></summary>
 
-Add this to your `~/.claude/settings.json`:
+<br>
+
+Add to `~/.claude/settings.json`:
 
 ```json
 {
@@ -80,189 +134,264 @@ Add this to your `~/.claude/settings.json`:
 }
 ```
 
-Replace `/path/to/synaptic/` with the actual path where you cloned the project.
+</details>
+
+<br>
 
 ---
 
-## What Claude Can Do With Synaptic
+<br>
 
-Once installed, Claude gets 14 tools organized into four groups.
+## Features
 
-### Saving and Finding Context
+### 14 Tools for Claude
 
-| Tool | What It Does |
-|------|-------------|
-| `context_save` | Save something to memory — a decision, a bug you found, a learning, etc. |
-| `context_search` | Search memory using keywords or natural language |
-| `context_list` | Browse recent entries by date or type |
-| `context_status` | See how much is stored — entry count, database size, etc. |
+<table>
+<tr>
+<td width="50%">
 
-### Keeping Things Organized
+**Memory**
+| Tool | Purpose |
+|:-----|:--------|
+| `context_save` | Save decisions, bugs, insights |
+| `context_search` | Keyword + semantic search |
+| `context_list` | Browse by date or type |
+| `context_status` | Storage stats |
 
-| Tool | What It Does |
-|------|-------------|
-| `context_archive` | Hide old entries you don't need anymore |
-| `context_save_rule` | Create a rule Claude must always follow (e.g., "never auto-commit") |
-| `context_delete_rule` | Remove a rule |
-| `context_list_rules` | See all active rules |
+</td>
+<td width="50%">
 
-### Understanding Your Git History
+**Organization**
+| Tool | Purpose |
+|:-----|:--------|
+| `context_archive` | Hide old entries |
+| `context_save_rule` | Create permanent rules |
+| `context_delete_rule` | Remove rules |
+| `context_list_rules` | List active rules |
 
-| Tool | What It Does |
-|------|-------------|
-| `context_git_index` | Import git commits into searchable memory |
-| `context_cochanges` | Find files that tend to change together ("when you edit A, you usually also edit B") |
-| `context_dna` | Generate a profile of your codebase — what files are hotspots, how the code is structured |
+</td>
+</tr>
+<tr>
+<td>
 
-### Tracking Threads and Sessions
+**Git Intelligence**
+| Tool | Purpose |
+|:-----|:--------|
+| `context_git_index` | Index commits into memory |
+| `context_cochanges` | Files that change together |
+| `context_dna` | Profile your codebase |
 
-| Tool | What It Does |
-|------|-------------|
-| `context_session` | See what happened in a specific session |
-| `context_chain` | Follow a thread of related entries (a decision and its consequences) |
-| `context_resolve_pattern` | Mark a recurring problem as fixed so it stops being flagged |
+</td>
+<td>
 
----
+**Threads & Sessions**
+| Tool | Purpose |
+|:-----|:--------|
+| `context_session` | View session history |
+| `context_chain` | Trace decision threads |
+| `context_resolve_pattern` | Dismiss recurring alerts |
 
-## Key Concepts
+</td>
+</tr>
+</table>
 
-### Entry Types
-
-When Claude saves something to memory, it gives it a type:
-
-| Type | When to Use | How Long It Lasts |
-|------|------------|------------------|
-| **decision** | "We chose X because Y" | Weeks (working tier) |
-| **progress** | "Finished implementing the auth flow" | Days (ephemeral tier) |
-| **issue** | "Tests fail when run in parallel" | Weeks (working tier) |
-| **insight** | "This API returns dates in UTC, not local time" | Weeks (working tier) |
-| **reference** | "The project uses tabs, not spaces" | Forever (longterm tier) |
-| **handoff** | "Here's what I was doing when the session ended" | Days (ephemeral tier) |
-| **rule** | "Always run tests before committing" | Forever (longterm tier) |
-
-### Memory Tiers (How Long Things Last)
-
-Not everything needs to be remembered forever. Synaptic uses three tiers:
-
-- **Ephemeral** — Short-lived. Auto-cleaned after ~4 days of no access. Good for progress updates and handoffs.
-- **Working** — Medium-term. Auto-cleaned after ~14 days of no access. Entries that get searched often survive longer automatically.
-- **Longterm** — Permanent. Never auto-cleaned. For rules, references, and project conventions.
-
-### Decision Chains
-
-Sometimes a decision leads to consequences that lead to more decisions. Chains let you track these narratives:
-
-```
-1. Decision: "Use SQLite for persistence"
-   ↓
-2. Issue: "SQLite WAL mode conflicts with WSL file locking"
-   ↓
-3. Decision: "Switch to journal_mode=DELETE for WSL compatibility"
-```
-
-Claude links these with a chain tag (like `chain:a1b2c3d4`). Later, anyone can pull up the full story with `context_chain`.
-
----
-
-## Features In Detail
+<br>
 
 ### Smart Search
 
-Search isn't just keyword matching. Every memory entry gets converted into a mathematical representation (an "embedding") that captures its meaning. When you search for "authentication problems," it also finds entries about "login failures" or "JWT token expiry" — even if those exact words weren't used.
+Every entry gets a 384-dimensional embedding generated **locally** using a Hugging Face model.
 
-The embeddings are generated locally using a small model from Hugging Face. Nothing is sent to the internet.
+Search combines keyword matching with semantic similarity — searching for "auth problems" also finds entries about "login failures" and "JWT expiry," even if those exact words were never used.
+
+Nothing is sent to the internet. Ever.
+
+<br>
 
 ### Codebase DNA
 
-Run `context_dna` and Claude analyzes your git history to build a profile:
+One command analyzes your git history and builds a profile:
 
-- **Hotspots** — Which files get changed most often? These are the core of your project.
-- **Layers** — How is work distributed? (e.g., 40% in `tools/`, 30% in `storage/`)
-- **Patterns** — Do you use commit prefixes like `feat:` and `fix:`? What's the average commit size?
-- **Clusters** — Which files always change together? (If you edit `auth.ts`, do you always also edit `auth.test.ts`?)
+```
+Codebase DNA (myapp, 100 commits analyzed):
+Hotspots: sqlite.ts (45%), session-start.ts (30%)
+Layers: tools/ (35%), storage/ (30%), hooks/ (25%), cli/ (10%)
+Patterns: 60% feat, 25% fix, 15% chore. Avg 3.2 files/commit.
+Clusters: [sqlite.ts + embedder.ts + server.ts]
+```
 
-This profile is saved as a longterm reference that Claude can look up when making architectural decisions.
+- **Hotspots** — Your most-changed files
+- **Layers** — Where work concentrates
+- **Patterns** — Your commit habits
+- **Clusters** — Files that always change together
+
+Saved permanently so Claude can reference it during architectural decisions.
+
+<br>
 
 ### Pre-Commit Guardian
 
-If you ran `npx synaptic init`, a git pre-commit hook watches your commits. Before each commit, it runs your project's lint, typecheck, and test scripts (whatever is defined in `package.json`).
+Runs your lint, typecheck, and test scripts before each commit.
 
-- **On failure:** The error is saved to memory with file and chain tags. Claude will know about it next session.
-- **On success:** If there were recent failures for the same files, a resolution entry is saved, creating a "failure -> fix" narrative.
+**When something fails** — the error is saved with file tags and a chain ID. Claude knows about it next session.
 
-Over time, this builds up a history of which files cause problems and how they get resolved.
+**When everything passes** — if those files recently failed, a resolution entry is saved. Over time, this builds traceable **failure → fix** narratives.
+
+<br>
+
+### Decision Chains
+
+Track how decisions evolve:
+
+```
+Decision: "Use SQLite for persistence"
+    ↓
+Issue: "SQLite WAL mode conflicts with WSL file locking"
+    ↓
+Decision: "Switch to journal_mode=DELETE for WSL compatibility"
+```
+
+Every entry in a chain shares a tag. Pull up the full story anytime with `context_chain`.
+
+<br>
+
+### Rules
+
+Permanent instructions injected every session. Tell Claude how to behave, forever:
+
+```
+context_save_rule(
+  label: "preserve-bug-fixes",
+  content: "Bug fixes and debugging techniques should be saved
+    as longterm entries. They have cross-project value and
+    should never auto-decay."
+)
+```
+
+More examples: `"never auto-commit"` · `"use bun instead of npm"` · `"always write tests first"`
+
+<br>
+
+### Memory Tiers
+
+Not everything lasts forever. Synaptic manages it for you:
+
+| Tier | Lifespan | Best For |
+|:-----|:---------|:---------|
+| **Ephemeral** | ~4 days | Progress updates, handoffs |
+| **Working** | ~14 days | Decisions, bugs, insights |
+| **Longterm** | Forever | Rules, references, conventions |
+
+Entries that get searched often survive longer automatically.
+
+<br>
 
 ### Watch Mode
 
-A background file watcher runs inside the MCP server process. It watches your `.git/` directory for:
-- Branch switches
-- New commits
+A background watcher observes your `.git/` directory for branch switches and new commits. Changes are auto-indexed after a 2-second debounce. Starts and stops with the MCP server — nothing extra to manage.
 
-When something changes, it auto-indexes after a short delay. No separate process to manage — it starts and stops with Claude.
-
-### Session-Start Briefing
-
-Every time Claude starts, it gets a briefing assembled from:
-
-1. Your rules (always included, never truncated)
-2. Recent context from the last 3 days (prioritizing your current project)
-3. The last handoff note (what happened at the end of the previous session)
-4. Any recurring problem patterns
-5. Context related to files you've been changing in git
-6. Suggestions about files that tend to co-change
-
-All of this fits within a ~4000 character budget so it doesn't overwhelm the conversation.
+<br>
 
 ---
 
-## Project Structure
+<br>
+
+## How It Works
+
+Synaptic runs as an **MCP server** — the standard way to extend Claude with new capabilities.
+
+Three hooks handle the lifecycle automatically:
 
 ```
-src/
-  cli.ts                    CLI entry point (npx synaptic)
-  cli/
-    init.ts                 Auto-setup for Claude Code
-    pre-commit.ts           Git hook — captures test failures
-  hooks/
-    session-start.ts        Injects context when Claude starts
-    pre-compact.ts          Preserves context before compression
-    stop.ts                 Saves handoff when Claude finishes
-  storage/
-    sqlite.ts               Database (SQLite + full-text search + vectors)
-    embedder.ts             Local AI embeddings for semantic search
-    watcher.ts              Git event observer
-    git.ts                  Git log parser
-    markdown.ts             Entry formatting
-    maintenance.ts          Auto-cleanup (decay, promotion)
-    paths.ts                Where data is stored
-    project.ts              Auto-detects which project you're in
-    session.ts              Tracks session IDs
-  tools/                    The 14 tools Claude can use
-    context-save.ts
-    context-search.ts
-    context-list.ts
-    context-status.ts
-    context-archive.ts
-    context-git-index.ts
-    context-cochanges.ts
-    context-dna.ts
-    context-chain.ts
-    context-session.ts
-    context-save-rule.ts
-    context-delete-rule.ts
-    context-list-rules.ts
-    context-resolve-pattern.ts
-  server.ts                 Registers all tools with the MCP server
-  index.ts                  Entry point (starts the server)
+┌─────────────────────────────────────────────────────┐
+│                                                     │
+│   START ──→  Injects rules, recent context,         │
+│              last session's handoff, patterns        │
+│                                                     │
+│   WORK ───→  Claude saves and searches context      │
+│              Git watcher auto-indexes in background  │
+│                                                     │
+│   COMPRESS →  Preserves important context before     │
+│               conversation is compressed             │
+│                                                     │
+│   END ────→  Saves handoff for next session          │
+│                                                     │
+└─────────────────────────────────────────────────────┘
 ```
+
+Data is stored in SQLite with full-text search and vector similarity search. All local.
+
+<br>
+
+---
+
+<br>
+
+## Enterprise
+
+<table>
+<tr>
+<td width="50%">
+
+### Personal
+**Free — always**
+
+- All 14 tools
+- Unlimited entries
+- Local-only storage
+- Full search
+- Git intelligence
+- Pre-commit guardian
+
+</td>
+<td width="50%">
+
+### Team & Enterprise
+**Coming soon**
+
+- Shared context across team members
+- Cloud sync between machines
+- Team rules and conventions
+- Analytics dashboard
+- Priority support
+- Custom integrations
+
+</td>
+</tr>
+</table>
+
+<br>
+
+Interested in Synaptic for your team? **[Get in touch →](mailto:hyperlynq@outlook.com)**
+
+<br>
+
+---
+
+<br>
 
 ## Development
 
 ```bash
-npm run build            # Compile TypeScript to JavaScript
+npm run build            # Compile TypeScript
 npm run smoke-test       # Build + run all 130 tests
 ```
 
+<br>
+
 ## License
 
-All rights reserved. This source code is provided for personal use only. You may not copy, modify, distribute, or create derivative works without explicit written permission from the author.
+Copyright (c) 2026 HYPERLYNQ. All rights reserved.
+
+Synaptic is **source-available**. You can use it freely for personal and internal purposes. You may not copy, modify, redistribute, or create derivative works from the source code. See [LICENSE](LICENSE) for details.
+
+For commercial licensing, contact **[hyperlynq@outlook.com](mailto:hyperlynq@outlook.com)**.
+
+<br>
+
+---
+
+<div align="center">
+
+**Built by [HYPERLYNQ](https://github.com/HYPERLYNQ)**
+
+</div>

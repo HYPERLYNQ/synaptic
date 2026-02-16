@@ -1,9 +1,14 @@
 Copyright (c) 2026 HYPERLYNQ. All rights reserved.
 
-This software and associated documentation files (the "Software") are the
-proprietary property of the copyright holder. No part of the Software may be
-copied, modified, merged, published, distributed, sublicensed, or sold without
-explicit written permission from the copyright holder.
+Permission is hereby granted to any person to use this software for personal
+or internal purposes, subject to the following conditions:
+
+1. You MAY use this software as-is for your own projects.
+2. You may NOT copy, modify, merge, publish, distribute, sublicense, or sell
+   copies of the source code or substantial portions of it.
+3. You may NOT create derivative works based on this software.
+4. This copyright notice and permission notice shall be included in all
+   copies or substantial portions of the Software.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
