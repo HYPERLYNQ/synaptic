@@ -16,6 +16,7 @@ import { contextDeleteRule, contextDeleteRuleSchema } from "./tools/context-dele
 import { contextListRules } from "./tools/context-list-rules.js";
 import { contextSession, contextSessionSchema } from "./tools/context-session.js";
 import { contextCochanges, contextCochangesSchema } from "./tools/context-cochanges.js";
+import { contextDna, contextDnaSchema } from "./tools/context-dna.js";
 import { GitWatcher } from "./storage/watcher.js";
 
 let _embedder: Embedder;
@@ -189,6 +190,18 @@ export function createServer(): McpServer {
     contextCochangesSchema,
     async (args) => {
       const result = contextCochanges(args, index);
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+      };
+    }
+  );
+
+  server.tool(
+    "context_dna",
+    "Analyze git history to discover codebase patterns, hotspots, architectural layers, and co-change clusters. Saves a longterm reference entry.",
+    contextDnaSchema,
+    async (args) => {
+      const result = await contextDna(args, index, embedder);
       return {
         content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
       };
