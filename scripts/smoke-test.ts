@@ -194,7 +194,7 @@ async function main(): Promise<void> {
   rawDb.exec(`UPDATE entries SET date = date('now', '-10 days') WHERE id = '${oldEphemeral.id}'`);
   rawDb.close();
 
-  const decayed = index.decayEphemeral(7);
+  const decayed = index.decayEphemeral();
   assert(decayed >= 1, `decayEphemeral archived ${decayed} old ephemeral entry(ies)`);
 
   const afterDecay = index.list();
@@ -472,6 +472,36 @@ async function main(): Promise<void> {
     confResults[0].id === highAccess.id,
     `High-access entry ranked first (got ${confResults[0].id === highAccess.id})`
   );
+
+  // -------------------------------------------------------
+  // 17. Test access-aware decay windows
+  // -------------------------------------------------------
+  console.log("\n[17] Access-aware decay");
+
+  index.clearAll();
+
+  // Entry with 0 accesses, 4 days old — should be archived (new threshold: 3 days)
+  const zeroAccess = makeEntry({ type: "progress", content: "Zero access entry", tier: "ephemeral" });
+  zeroAccess.accessCount = 0;
+  index.insert(zeroAccess);
+
+  // Entry with 5 accesses, 4 days old — should NOT be archived (threshold: 14 days)
+  const highAccessEph = makeEntry({ type: "progress", content: "High access ephemeral", tier: "ephemeral" });
+  highAccessEph.accessCount = 5;
+  index.insert(highAccessEph);
+
+  const rawDb4 = new DatabaseSync(DB_PATH);
+  rawDb4.exec(`UPDATE entries SET date = date('now', '-4 days') WHERE id IN ('${zeroAccess.id}', '${highAccessEph.id}')`);
+  rawDb4.close();
+
+  const decayedCount = index.decayEphemeral();
+  assert(decayedCount >= 1, `Access-aware decay archived ${decayedCount} entry(ies)`);
+
+  const remaining = index.list();
+  const zeroStillThere = remaining.find(e => e.id === zeroAccess.id);
+  const highStillThere = remaining.find(e => e.id === highAccessEph.id);
+  assert(zeroStillThere === undefined, `Zero-access entry archived after 4 days`);
+  assert(highStillThere !== undefined, `High-access entry NOT archived after 4 days`);
 
   // -------------------------------------------------------
   // Summary
