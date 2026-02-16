@@ -172,7 +172,29 @@ async function main(): Promise<void> {
       }
     }
 
-    // --- SECTION 6: Maintenance (only if something happened) ---
+    // --- SECTION 6: Cross-project insights ---
+    const budgetForCrossProject: string[] = [];
+    if (currentProject) {
+      const crossProject = index.list({ days: 7 })
+        .filter(e =>
+          e.project !== null &&
+          e.project !== currentProject &&
+          e.type !== "handoff" &&
+          e.type !== "git_commit" &&
+          e.tier !== "ephemeral"
+        )
+        .slice(0, 3);
+
+      if (crossProject.length > 0) {
+        budgetForCrossProject.push("## From other projects");
+        for (const entry of crossProject) {
+          budgetForCrossProject.push(`- [${entry.project}] ${entry.content.slice(0, 120)}`);
+        }
+        budgetForCrossProject.push("");
+      }
+    }
+
+    // --- SECTION 7: Maintenance (only if something happened) ---
     const budgetForMaint: string[] = [];
     const maintTotal = maintenance.decayed + maintenance.demoted + maintenance.promotedStable + maintenance.promotedFrequent;
     if (maintTotal > 0) {
@@ -185,7 +207,7 @@ async function main(): Promise<void> {
     }
 
     // --- Assemble within budget ---
-    const sections = [budgetForContext, budgetForHandoff, budgetForPatterns, budgetForRelated, budgetForCochanges, budgetForMaint];
+    const sections = [budgetForContext, budgetForHandoff, budgetForPatterns, budgetForRelated, budgetForCochanges, budgetForCrossProject, budgetForMaint];
     for (const section of sections) {
       const sectionText = section.join("\n");
       if (charCount + sectionText.length <= TOKEN_BUDGET_CHARS) {
