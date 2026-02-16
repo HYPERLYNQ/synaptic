@@ -4,6 +4,9 @@
   "description": "Persistent local memory for Claude Code — cross-session context recall, BM25 search, zero cloud",
   "type": "module",
   "main": "build/index.js",
+  "bin": {
+    "synaptic": "build/src/cli.js"
+  },
   "scripts": {
     "build": "tsc",
     "rebuild-index": "node build/scripts/rebuild-index.js",
