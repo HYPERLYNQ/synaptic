@@ -7,11 +7,13 @@
  */
 
 import { unlinkSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { DatabaseSync } from "node:sqlite";
 import { dirname, join } from "node:path";
 import { ContextIndex } from "../src/storage/sqlite.js";
 import { Embedder } from "../src/storage/embedder.js";
 import { getGitLog, formatCommitAsContent } from "../src/storage/git.js";
 import { detectProject, resetProjectCache } from "../src/storage/project.js";
+import { runMaintenance } from "../src/storage/maintenance.js";
 import type { ContextEntry } from "../src/storage/markdown.js";
 
 const DB_PATH = "/tmp/claude/synaptic-smoke-test.db";
@@ -189,7 +191,6 @@ async function main(): Promise<void> {
   // Manually backdate it via raw SQL through a helper
   // We need direct DB access -- use a small trick: insert, then update via the index's internal methods
   // Since ContextIndex doesn't expose raw exec, we create a second connection
-  const { DatabaseSync } = await import("node:sqlite");
   const rawDb = new DatabaseSync(DB_PATH);
   rawDb.exec(`UPDATE entries SET date = date('now', '-10 days') WHERE id = '${oldEphemeral.id}'`);
   rawDb.close();
@@ -823,6 +824,61 @@ async function main(): Promise<void> {
   // Test that a random technical statement does NOT match at the same thresholds
   const noMatch = await embedder.classifySentence("The function returns a promise that resolves to an array", intentTemplates, 0.25);
   assert(noMatch === null, `Random technical statement does NOT match any intent (result: ${noMatch?.category ?? "null"})`);
+
+  // -------------------------------------------------------
+  // 30. Consolidation in maintenance
+  // -------------------------------------------------------
+  console.log("\n[30] Consolidation in maintenance");
+
+  index.clearAll();
+
+  // Insert 3 near-identical issue entries, backdate them to 5 days ago
+  const consolidationContent = [
+    "Authentication fails when token has special characters in payload",
+    "Auth token with special chars causes authentication failure",
+    "Token authentication broken when payload contains special characters",
+  ];
+
+  const consolidationEmbedding = await embedder.embed("authentication token special characters failure");
+  const consolidationIds: string[] = [];
+
+  for (const content of consolidationContent) {
+    const entry = makeEntry({ type: "issue", content });
+    const rowid = index.insert(entry);
+    index.insertVec(rowid, consolidationEmbedding);
+    consolidationIds.push(entry.id);
+  }
+
+  // Backdate all to 5 days ago (must be > 3 days old)
+  const rawDbCons = new DatabaseSync(DB_PATH);
+  for (const id of consolidationIds) {
+    rawDbCons.exec(`UPDATE entries SET date = date('now', '-5 days') WHERE id = '${id}'`);
+  }
+  rawDbCons.close();
+
+  // Give one entry higher access count (should be the survivor)
+  index.touchEntry(consolidationIds[0]);
+  index.touchEntry(consolidationIds[0]);
+  index.touchEntry(consolidationIds[0]);
+
+  const maintReport = runMaintenance(index);
+
+  assert(
+    maintReport.consolidated !== undefined && maintReport.consolidated >= 1,
+    `Maintenance consolidated ${maintReport.consolidated} group(s)`
+  );
+
+  // Check: survivor still exists, others archived
+  const afterConsolidation = index.list({ includeArchived: false });
+  const survivors = afterConsolidation.filter(e => consolidationIds.includes(e.id));
+  assert(survivors.length === 1, `1 survivor after consolidation (got ${survivors.length})`);
+  assert(survivors[0].id === consolidationIds[0], `Survivor is the highest-access entry`);
+  assert(survivors[0].content.includes("[Consolidated from"), `Survivor has consolidation note`);
+
+  // Archived entries should be recoverable
+  const allAfter = index.list({ includeArchived: true });
+  const archived = allAfter.filter(e => consolidationIds.includes(e.id) && e.archived);
+  assert(archived.length === 2, `2 entries archived (got ${archived.length})`);
 
   // -------------------------------------------------------
   // Summary
