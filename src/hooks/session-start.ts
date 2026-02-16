@@ -52,7 +52,7 @@ async function main(): Promise<void> {
   if (!hasAutoDistill) {
     index.saveRule(
       "auto-distill",
-      "When a significant decision is made, a problem is solved, a correction is given, or something surprising is discovered, save it as an insight to Synaptic immediately using context_save. Tag corrections with 'correction'. Don't wait for session end."
+      "When a significant decision is made, a problem is solved, a correction is given, or something surprising is discovered, save it as an insight to Synaptic immediately using context_save. Tag corrections with 'correction'. When following up on a previous decision, include its chain tag (e.g., chain:abc123). Don't wait for session end."
     );
   }
 
