@@ -1,16 +1,48 @@
 {
-  "name": "synaptic",
+  "name": "@hyperlynq/synaptic",
   "version": "0.7.0",
-  "description": "Persistent local memory for Claude Code — cross-session context recall, BM25 search, zero cloud",
+  "description": "Persistent local memory for Claude Code — cross-session context recall, semantic search, zero cloud",
   "type": "module",
-  "main": "build/index.js",
+  "main": "build/src/index.js",
   "bin": {
     "synaptic": "build/src/cli.js"
   },
+  "files": [
+    "build/src/",
+    "build/scripts/rebuild-index.js",
+    "build/scripts/rebuild-index.d.ts",
+    "LICENSE",
+    "README.md"
+  ],
   "scripts": {
     "build": "tsc",
     "rebuild-index": "node build/scripts/rebuild-index.js",
-    "smoke-test": "npm run build && node build/scripts/smoke-test.js"
+    "smoke-test": "npm run build && node build/scripts/smoke-test.js",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "claude",
+    "claude-code",
+    "mcp",
+    "memory",
+    "context",
+    "persistent-memory",
+    "model-context-protocol",
+    "ai-tools",
+    "developer-tools"
+  ],
+  "author": "HYPERLYNQ <hyperlynq@outlook.com>",
+  "license": "SEE LICENSE IN LICENSE",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/HYPERLYNQ/synaptic.git"
+  },
+  "homepage": "https://github.com/HYPERLYNQ/synaptic",
+  "bugs": {
+    "url": "https://github.com/HYPERLYNQ/synaptic/issues"
+  },
+  "engines": {
+    "node": ">=22.0.0"
   },
   "dependencies": {
     "@huggingface/transformers": "^3.8.1",

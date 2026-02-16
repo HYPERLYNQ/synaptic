@@ -1,0 +1,18 @@
+# Source (published as compiled JS)
+src/
+scripts/
+tsconfig.json
+*.tsbuildinfo
+
+# Dev/docs
+docs/
+.synaptic/
+.github/
+.claude/
+
+# Tests
+build/scripts/smoke-test.*
+
+# Git
+.git/
+.gitignore
