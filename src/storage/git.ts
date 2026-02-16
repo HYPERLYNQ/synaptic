@@ -74,6 +74,33 @@ export function getGitLog(
   }
 }
 
+export function getRecentlyChangedFiles(repoPath: string): string[] {
+  const files = new Set<string>();
+  try {
+    // Last 3 commits
+    const committed = execSync("git diff --name-only HEAD~3", {
+      cwd: repoPath,
+      encoding: "utf-8",
+      timeout: 3000,
+    }).trim();
+    if (committed) committed.split("\n").forEach(f => files.add(f));
+  } catch {
+    // May fail if fewer than 3 commits
+  }
+  try {
+    // Uncommitted changes
+    const uncommitted = execSync("git diff --name-only", {
+      cwd: repoPath,
+      encoding: "utf-8",
+      timeout: 3000,
+    }).trim();
+    if (uncommitted) uncommitted.split("\n").forEach(f => files.add(f));
+  } catch {
+    // Ignore
+  }
+  return Array.from(files);
+}
+
 export function formatCommitAsContent(commit: GitCommit): string {
   const fileList = commit.files
     .map(f => {
