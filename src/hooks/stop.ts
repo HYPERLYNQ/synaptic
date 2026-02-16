@@ -114,11 +114,12 @@ async function main(): Promise<void> {
       }
     }
 
+    // Pre-filter non-insight entries for use by safety net + intent classification
+    const nonInsightEntries = todayEntries
+      .filter(e => e.type !== "insight" && e.type !== "handoff" && e.type !== "git_commit" && e.type !== "rule");
+
     // Layer 2: Embedder safety net — classify remaining entries for missed learnings
     try {
-      const nonInsightEntries = todayEntries
-        .filter(e => e.type !== "insight" && e.type !== "handoff" && e.type !== "git_commit" && e.type !== "rule");
-
       if (nonInsightEntries.length > 0 && todayInsights.length < 5) {
         const categoryTemplates = await embedder.getCategoryTemplates();
         const remaining = 5 - todayInsights.length;
@@ -207,6 +208,65 @@ async function main(): Promise<void> {
       // Don't fail the handoff if classification errors
     }
 
+    // Intent classification — autonomous capture of declarations, preferences, etc.
+    try {
+      const intentTemplates = await embedder.getIntentTemplates();
+      const autoCaptures: Array<{ content: string; category: string; similarity: number }> = [];
+
+      for (const entry of nonInsightEntries.slice(0, 20)) {
+        const match = await embedder.classifySentence(entry.content, intentTemplates, 0.3);
+        if (match) {
+          // Deduplicate: check if similar entry already exists as reference or rule
+          const existingRefs = index.list({ days: 30 })
+            .filter(e => e.type === "reference" || e.type === "rule");
+
+          let isDuplicate = false;
+          const entryEmb = await embedder.embed(entry.content);
+          for (const ref of existingRefs.slice(0, 30)) {
+            const refEmb = await embedder.embed(ref.content);
+            let dot = 0;
+            for (let i = 0; i < entryEmb.length; i++) {
+              dot += entryEmb[i] * refEmb[i];
+            }
+            if (dot >= 0.8) {
+              isDuplicate = true;
+              break;
+            }
+          }
+
+          if (!isDuplicate) {
+            autoCaptures.push({ content: entry.content, ...match });
+          }
+        }
+      }
+
+      // Save auto-captured intents
+      const capturedCounts = new Map<string, number>();
+      for (const capture of autoCaptures.slice(0, 5)) {
+        const type = (capture.category === "frustration") ? "issue" : "reference";
+        const tier = (capture.category === "frustration") ? "working" : "longterm";
+
+        const captureEntry = appendEntry(
+          capture.content,
+          type,
+          ["auto-captured", `intent:${capture.category}`]
+        );
+        captureEntry.tier = tier;
+        const captureRowid = enrichInsert(captureEntry);
+        const captureEmb = await embedder.embed(capture.content);
+        index.insertVec(captureRowid, captureEmb);
+
+        capturedCounts.set(capture.category, (capturedCounts.get(capture.category) ?? 0) + 1);
+      }
+
+      if (capturedCounts.size > 0) {
+        const parts = Array.from(capturedCounts.entries()).map(([cat, count]) => `${count} ${cat}(s)`);
+        contentParts.push(`Auto-captured: ${parts.join(", ")}`);
+      }
+    } catch {
+      // Don't fail the handoff if intent classification errors
+    }
+
     const content = contentParts.join("\n");
 
     const entry = appendEntry(content, "handoff", tagList);
@@ -214,6 +274,17 @@ async function main(): Promise<void> {
     const rowid = enrichInsert(entry);
     const embedding = await embedder.embed(entry.content);
     index.insertVec(rowid, embedding);
+
+    // Bump access for entries that contributed to handoff learnings
+    for (const insight of todayInsights) {
+      index.touchEntry(insight.id);
+    }
+
+    // Also bump corrections that fed into pending rules
+    for (const entry of todayEntries.filter(e => e.tags.includes("correction"))) {
+      index.touchEntry(entry.id);
+    }
+
     updateDebounceTimestamp();
   } finally {
     index.close();
