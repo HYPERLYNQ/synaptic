@@ -7,7 +7,7 @@
  * 2. Recent context (last 3 days, compact format, same-project boosted)
  * 3. Most recent handoff note (1 only)
  * 4. Recurring patterns
- * 5. Related context (from recently changed git files)
+ * 5. Predicted focus (branch + diff + handoff semantic search)
  * 6. Maintenance summary (only if something changed)
  */
 
@@ -17,7 +17,7 @@ import { runMaintenance } from "../storage/maintenance.js";
 import { Embedder } from "../storage/embedder.js";
 import { contextGitIndex } from "../tools/context-git-index.js";
 import { detectProject } from "../storage/project.js";
-import { getRecentlyChangedFiles, isGitRepo } from "../storage/git.js";
+import { getRecentlyChangedFiles, isGitRepo, getCurrentBranch } from "../storage/git.js";
 
 const TOKEN_BUDGET_CHARS = 4000; // ~1000 tokens
 
@@ -174,32 +174,52 @@ async function main(): Promise<void> {
       budgetForPatterns.push("");
     }
 
-    // --- SECTION 5: Related context from git activity ---
-    const budgetForRelated: string[] = [];
-    const budgetForCochanges: string[] = [];
+    // --- SECTION 5: Predicted focus ---
+    const budgetForFocus: string[] = [];
     const cwd = process.cwd();
     if (isGitRepo(cwd)) {
-      const recentFiles = getRecentlyChangedFiles(cwd);
-      if (recentFiles.length > 0) {
-        // Search for entries related to recently changed files
-        const fileQuery = recentFiles.slice(0, 5).join(" ");
-        try {
-          const related = index.search(fileQuery, { limit: 3 })
-            .filter(e => e.type !== "handoff" && e.type !== "git_commit");
-          if (related.length > 0) {
-            budgetForRelated.push("## Related context");
-            for (const r of related) {
-              const ago = Math.floor((Date.now() - new Date(r.date).getTime()) / (1000 * 60 * 60 * 24));
-              budgetForRelated.push(`- [${ago}d ago] ${r.content.slice(0, 120)}`);
-            }
-            budgetForRelated.push("");
-          }
-        } catch {
-          // Don't block session start
+      try {
+        const branch = getCurrentBranch(cwd);
+        const recentFiles = getRecentlyChangedFiles(cwd);
+
+        // Build focus query from branch + files + last handoff
+        const queryParts: string[] = [];
+        if (branch && branch !== "main" && branch !== "master") {
+          // Branch name often contains feature context: feature/auth-rework -> auth rework
+          queryParts.push(branch.replace(/[\/\-_]/g, " "));
+        }
+        if (recentFiles.length > 0) {
+          queryParts.push(recentFiles.slice(0, 5).join(" "));
+        }
+        // Include last handoff learnings for continuity
+        const handoffs = index.list({ days: 7, type: "handoff" }).slice(0, 1);
+        if (handoffs.length > 0) {
+          const handoffContent = handoffs[0].content.slice(0, 200);
+          queryParts.push(handoffContent);
         }
 
-        // Co-change suggestions
-        if (currentProject) {
+        if (queryParts.length > 0) {
+          const focusQuery = queryParts.join(" ");
+          const focusResults = index.search(focusQuery, { limit: 3 })
+            .filter(e => e.type !== "handoff" && e.type !== "git_commit");
+
+          if (focusResults.length > 0) {
+            const fileCount = recentFiles.length;
+            const branchStr = branch ? `Branch: ${branch}` : "No branch";
+            const filesStr = fileCount > 0 ? ` | ${fileCount} uncommitted file${fileCount === 1 ? "" : "s"}` : "";
+
+            budgetForFocus.push("## Predicted focus");
+            budgetForFocus.push(`${branchStr}${filesStr}`);
+            for (const r of focusResults) {
+              const ago = Math.floor((Date.now() - new Date(r.date).getTime()) / (1000 * 60 * 60 * 24));
+              budgetForFocus.push(`- [${ago}d ago] ${r.type}: ${r.content.slice(0, 120)}`);
+            }
+            budgetForFocus.push("");
+          }
+        }
+
+        // Co-change suggestions (fold into focus section)
+        if (currentProject && recentFiles.length > 0) {
           const suggestions: string[] = [];
           for (const file of recentFiles.slice(0, 5)) {
             const cochanges = index.getCoChanges(currentProject, file, 3)
@@ -210,11 +230,15 @@ async function main(): Promise<void> {
             }
           }
           if (suggestions.length > 0) {
-            budgetForCochanges.push("## Predictive context");
-            budgetForCochanges.push(...suggestions);
-            budgetForCochanges.push("");
+            if (budgetForFocus.length === 0) {
+              budgetForFocus.push("## Predicted focus");
+            }
+            budgetForFocus.push(...suggestions);
+            budgetForFocus.push("");
           }
         }
+      } catch {
+        // Don't block session start
       }
     }
 
@@ -253,7 +277,7 @@ async function main(): Promise<void> {
     }
 
     // --- Assemble within budget ---
-    const sections = [budgetForPending, budgetForContext, budgetForHandoff, budgetForPatterns, budgetForRelated, budgetForCochanges, budgetForCrossProject, budgetForMaint];
+    const sections = [budgetForPending, budgetForContext, budgetForHandoff, budgetForPatterns, budgetForFocus, budgetForCrossProject, budgetForMaint];
     for (const section of sections) {
       const sectionText = section.join("\n");
       if (charCount + sectionText.length <= TOKEN_BUDGET_CHARS) {
