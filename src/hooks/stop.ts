@@ -104,6 +104,71 @@ async function main(): Promise<void> {
       }
     }
 
+    // Layer 2: Embedder safety net — classify remaining entries for missed learnings
+    try {
+      const nonInsightEntries = todayEntries
+        .filter(e => e.type !== "insight" && e.type !== "handoff" && e.type !== "git_commit" && e.type !== "rule");
+
+      if (nonInsightEntries.length > 0 && todayInsights.length < 5) {
+        const categoryTemplates = await embedder.getCategoryTemplates();
+        const remaining = 5 - todayInsights.length;
+        const candidates: Array<{ content: string; category: string; similarity: number }> = [];
+
+        for (const entry of nonInsightEntries.slice(0, 20)) {
+          const match = await embedder.classifySentence(entry.content, categoryTemplates, 0.7);
+          if (match) {
+            candidates.push({ content: entry.content, ...match });
+          }
+        }
+
+        // Sort by similarity, take top N
+        candidates.sort((a, b) => b.similarity - a.similarity);
+        const extras = candidates.slice(0, remaining);
+        if (extras.length > 0 && todayInsights.length === 0) {
+          contentParts.push("Learnings:");
+        }
+        for (const extra of extras) {
+          const summary = extra.content.length > 150 ? extra.content.slice(0, 150) + "..." : extra.content;
+          contentParts.push(`- ${summary}`);
+        }
+      }
+
+      // Correction detection — scan for directive patterns, save as pending rules
+      const directiveTemplates = await embedder.getDirectiveTemplates();
+      const corrections: Array<{ content: string; category: string }> = [];
+
+      for (const entry of todayEntries.filter(e => e.tags.includes("correction"))) {
+        corrections.push({ content: entry.content, category: "explicit" });
+      }
+
+      // Also check non-tagged entries for directive language
+      for (const entry of nonInsightEntries.slice(0, 15)) {
+        const match = await embedder.classifySentence(entry.content, directiveTemplates, 0.75);
+        if (match && !corrections.some(c => c.content === entry.content)) {
+          corrections.push({ content: entry.content, category: match.category });
+        }
+      }
+
+      // Save corrections as pending rule proposals
+      if (corrections.length > 0) {
+        for (const corr of corrections.slice(0, 3)) {
+          const label = corr.content.slice(0, 40).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/-+$/, "");
+          const pendingEntry = appendEntry(
+            corr.content,
+            "insight",
+            ["pending_rule", `proposed-label:${label}`]
+          );
+          pendingEntry.tier = "working";
+          const corrRowid = index.insert(pendingEntry);
+          const emb = await embedder.embed(corr.content);
+          index.insertVec(corrRowid, emb);
+        }
+        contentParts.push(`Corrections detected: ${corrections.length} pending rule proposal(s) saved.`);
+      }
+    } catch {
+      // Don't fail the handoff if classification errors
+    }
+
     const content = contentParts.join("\n");
 
     const entry = appendEntry(content, "handoff", tagList);
