@@ -82,6 +82,22 @@ async function main(): Promise<void> {
     }
     charCount = lines.join("\n").length;
 
+    // --- SECTION 1b: Pending rules for approval (high priority, right after rules) ---
+    const budgetForPending: string[] = [];
+    const pendingRules = index.list({ days: 7 })
+      .filter(e => e.tags.includes("pending_rule") && !e.archived);
+
+    if (pendingRules.length > 0) {
+      budgetForPending.push("## Pending rules (approve or dismiss)");
+      for (const pr of pendingRules.slice(0, 3)) {
+        const labelTag = pr.tags.find(t => t.startsWith("proposed-label:"));
+        const label = labelTag ? labelTag.replace("proposed-label:", "") : "unnamed";
+        budgetForPending.push(`- "${label}": ${pr.content.slice(0, 100)}`);
+      }
+      budgetForPending.push("_Ask user to accept (context_save_rule) or dismiss (context_archive)._");
+      budgetForPending.push("");
+    }
+
     // --- SECTION 2: Recent context (last 3 days, compact, project-boosted) ---
     const budgetForContext: string[] = [];
     const recent = index.list({ days: 3 })
@@ -207,7 +223,7 @@ async function main(): Promise<void> {
     }
 
     // --- Assemble within budget ---
-    const sections = [budgetForContext, budgetForHandoff, budgetForPatterns, budgetForRelated, budgetForCochanges, budgetForCrossProject, budgetForMaint];
+    const sections = [budgetForPending, budgetForContext, budgetForHandoff, budgetForPatterns, budgetForRelated, budgetForCochanges, budgetForCrossProject, budgetForMaint];
     for (const section of sections) {
       const sectionText = section.join("\n");
       if (charCount + sectionText.length <= TOKEN_BUDGET_CHARS) {
