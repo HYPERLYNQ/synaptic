@@ -99,11 +99,7 @@ Claude's auto-memory (`~/.claude/memory/`) saves short notes to files. But there
 ### Install
 
 ```bash
-git clone https://github.com/HYPERLYNQ/synaptic.git
-cd synaptic
-npm install
-npm run build
-npx synaptic init
+npx @hyperlynq/synaptic init
 ```
 
 That's it. The `init` command auto-detects your environment (Linux, macOS, WSL) and configures everything:
@@ -118,7 +114,24 @@ That's it. The `init` command auto-detects your environment (Linux, macOS, WSL) 
 <br>
 
 <details>
-<summary><strong>Manual setup</strong></summary>
+<summary><strong>Install from source</strong></summary>
+
+<br>
+
+```bash
+git clone https://github.com/HYPERLYNQ/synaptic.git
+cd synaptic
+npm install
+npm run build
+npx synaptic init
+```
+
+</details>
+
+<br>
+
+<details>
+<summary><strong>Manual MCP setup</strong></summary>
 
 <br>
 
