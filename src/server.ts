@@ -26,6 +26,8 @@ export function getCurrentProject(): string | null {
   return _currentProject;
 }
 
+export { getSessionId } from "./storage/session.js";
+
 export function createServer(): McpServer {
   ensureDirs();
   _currentProject = detectProject();

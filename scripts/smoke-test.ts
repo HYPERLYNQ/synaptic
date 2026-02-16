@@ -419,6 +419,34 @@ async function main(): Promise<void> {
   assert(projectFromFolder === "fake-project", `detectProject from folder name = "fake-project" (got "${projectFromFolder}")`);
 
   // -------------------------------------------------------
+  // 15. Test session ID + auto-tagging on save
+  // -------------------------------------------------------
+  console.log("\n[15] Session ID + auto-tagging");
+
+  const { getSessionId } = await import("../src/storage/session.js");
+
+  const sid = getSessionId();
+  assert(typeof sid === "string" && sid.length > 0, `getSessionId returns a string (got "${sid}")`);
+  assert(getSessionId() === sid, `getSessionId returns same value on second call (cached)`);
+
+  // Test that insert with enriched fields stores project/sessionId/agentId
+  const enrichTestEntry = makeEntry({ type: "insight", content: "Test auto-tagging enrichment" });
+  const enrichedInsert = {
+    ...enrichTestEntry,
+    project: "test-project",
+    sessionId: sid,
+    agentId: "test-agent",
+  };
+  index.insert(enrichedInsert);
+
+  const savedEntries = index.list({ includeArchived: true });
+  const enrichedEntry = savedEntries.find(e => e.content === "Test auto-tagging enrichment");
+  assert(enrichedEntry !== undefined, `Enriched entry found in DB`);
+  assert(enrichedEntry!.sessionId === sid, `Entry has sessionId (got "${enrichedEntry?.sessionId}")`);
+  assert(enrichedEntry!.agentId === "test-agent", `Entry has agentId "test-agent" (got "${enrichedEntry?.agentId}")`);
+  assert(enrichedEntry!.project === "test-project", `Entry has project "test-project" (got "${enrichedEntry?.project}")`);
+
+  // -------------------------------------------------------
   // Summary
   // -------------------------------------------------------
   index.close();

@@ -160,7 +160,7 @@ export class ContextIndex {
     this.db.exec("CREATE INDEX IF NOT EXISTS idx_file_pairs_lookup ON file_pairs(project, file_a)");
   }
 
-  insert(entry: ContextEntry & { project?: string; sessionId?: string; agentId?: string }): number {
+  insert(entry: ContextEntry): number {
     const stmt = this.db.prepare(`
       INSERT OR REPLACE INTO entries (id, date, time, type, tags, content, source_file, tier, access_count, last_accessed, pinned, archived, label, project, session_id, agent_id)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
