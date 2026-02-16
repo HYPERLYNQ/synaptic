@@ -542,6 +542,18 @@ async function main(): Promise<void> {
   assert(sessionResults.every(e => e.sessionId === "sess-abc"), `All results have session_id = sess-abc`);
 
   // -------------------------------------------------------
+  // 20. Test template embeddings
+  // -------------------------------------------------------
+  console.log("\n[20] Template embeddings");
+
+  const templates = await embedder.getDirectiveTemplates();
+  assert(templates.length > 0, `Directive templates loaded (got ${templates.length})`);
+  assert(templates[0].embedding.length === 384, `Template embedding is 384-dim`);
+
+  const categoryTemplates = await embedder.getCategoryTemplates();
+  assert(categoryTemplates.length > 0, `Category templates loaded (got ${categoryTemplates.length})`);
+
+  // -------------------------------------------------------
   // Summary
   // -------------------------------------------------------
   index.close();

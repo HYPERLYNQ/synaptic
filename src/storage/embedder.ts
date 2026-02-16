@@ -7,9 +7,17 @@ import { MODELS_DIR } from "./paths.js";
 
 const MAX_CACHE = 100;
 
+export interface TemplateEmbedding {
+  category: string;
+  text: string;
+  embedding: Float32Array;
+}
+
 export class Embedder {
   private extractor: FeatureExtractionPipeline | null = null;
   private cache = new Map<string, Float32Array>();
+  private directiveTemplates: TemplateEmbedding[] | null = null;
+  private categoryTemplates: TemplateEmbedding[] | null = null;
 
   /** Pre-load the model so first real query is fast. */
   async warmup(): Promise<void> {
@@ -49,5 +57,69 @@ export class Embedder {
     this.cache.set(key, embedding);
 
     return embedding;
+  }
+
+  /** Pre-computed directive templates for correction detection */
+  async getDirectiveTemplates(): Promise<TemplateEmbedding[]> {
+    if (this.directiveTemplates) return this.directiveTemplates;
+
+    const directives = [
+      { category: "always", text: "always do this from now on" },
+      { category: "never", text: "never do that again" },
+      { category: "stop", text: "stop doing this please" },
+      { category: "remember", text: "please remember to do this going forward" },
+      { category: "preference", text: "I prefer this approach instead" },
+      { category: "correction", text: "that's wrong, do it this way instead" },
+    ];
+
+    this.directiveTemplates = [];
+    for (const d of directives) {
+      const embedding = await this.embed(d.text);
+      this.directiveTemplates.push({ ...d, embedding });
+    }
+    return this.directiveTemplates;
+  }
+
+  /** Pre-computed category templates for distillation */
+  async getCategoryTemplates(): Promise<TemplateEmbedding[]> {
+    if (this.categoryTemplates) return this.categoryTemplates;
+
+    const categories = [
+      { category: "decision", text: "we decided to go with this approach" },
+      { category: "decision", text: "let's use this option instead" },
+      { category: "solution", text: "the fix was to change this" },
+      { category: "solution", text: "this worked because of that reason" },
+      { category: "discovery", text: "turns out the issue was caused by this" },
+      { category: "discovery", text: "I found out that this is how it works" },
+    ];
+
+    this.categoryTemplates = [];
+    for (const c of categories) {
+      const embedding = await this.embed(c.text);
+      this.categoryTemplates.push({ ...c, embedding });
+    }
+    return this.categoryTemplates;
+  }
+
+  /** Classify a sentence against templates, return best match if above threshold */
+  async classifySentence(
+    sentence: string,
+    templates: TemplateEmbedding[],
+    threshold: number = 0.7
+  ): Promise<{ category: string; similarity: number } | null> {
+    const sentenceEmb = await this.embed(sentence);
+    let bestMatch: { category: string; similarity: number } | null = null;
+
+    for (const tpl of templates) {
+      let dot = 0;
+      for (let i = 0; i < sentenceEmb.length; i++) {
+        dot += sentenceEmb[i] * tpl.embedding[i];
+      }
+      // Embeddings are L2-normalized, so dot product = cosine similarity
+      if (dot >= threshold && (!bestMatch || dot > bestMatch.similarity)) {
+        bestMatch = { category: tpl.category, similarity: dot };
+      }
+    }
+    return bestMatch;
   }
 }
