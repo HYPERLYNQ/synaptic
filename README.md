@@ -13,8 +13,8 @@
 
 **Claude forgets everything between sessions. Synaptic fixes that.**
 
-[![Version](https://img.shields.io/badge/version-0.6.0-blue)](https://github.com/HYPERLYNQ/synaptic)
-[![Tests](https://img.shields.io/badge/tests-130%20passing-brightgreen)](https://github.com/HYPERLYNQ/synaptic)
+[![Version](https://img.shields.io/badge/version-0.7.0-blue)](https://github.com/HYPERLYNQ/synaptic)
+[![Tests](https://img.shields.io/badge/tests-147%20passing-brightgreen)](https://github.com/HYPERLYNQ/synaptic)
 [![Node](https://img.shields.io/badge/node-22%2B-339933)](https://nodejs.org)
 [![License](https://img.shields.io/badge/license-source--available-orange)](LICENSE)
 
@@ -74,6 +74,8 @@ Claude's auto-memory (`~/.claude/memory/`) saves short notes to files. But there
 | Git awareness | None | None | Commits, co-changes, codebase DNA |
 | Memory cleanup | Manual | Grows forever | Auto-decay by tier |
 | Pattern detection | None | None | Tracks recurring failures |
+| Auto-capture | None | None | Detects declarations, preferences, corrections |
+| Predictive context | None | None | Surfaces relevant history at session start |
 
 <br>
 
@@ -285,6 +287,20 @@ Entries that get searched often survive longer automatically.
 
 <br>
 
+### Proactive Intelligence
+
+Synaptic doesn't just store what Claude explicitly saves — it **captures what Claude misses**.
+
+**Intent Classification** — The stop hook scans each session for declarations, preferences, identities, and frustrations using semantic similarity against intent templates. If you say "X is my project" or "I prefer bun over npm," Synaptic auto-captures it as a longterm reference without you asking.
+
+**Predicted Focus** — At session start, Synaptic analyzes your current git branch, uncommitted files, and last session's handoff to predict what you're about to work on. It surfaces the 2-3 most relevant past entries automatically.
+
+**Consolidation Engine** — Duplicate entries about the same topic are automatically merged during maintenance. The highest-access entry survives with merged tags; the rest are archived. Keeps your memory clean without losing information.
+
+**Handoff Access Bumps** — Entries important enough to appear in session handoffs get their access counts incremented, making them survive longer in the decay system. Important memories are self-reinforcing.
+
+<br>
+
 ### Watch Mode
 
 A background watcher observes your `.git/` directory for branch switches and new commits. Changes are auto-indexed after a 2-second debounce. Starts and stops with the MCP server — nothing extra to manage.
@@ -304,8 +320,8 @@ Three hooks handle the lifecycle automatically:
 ```
 ┌─────────────────────────────────────────────────────┐
 │                                                     │
-│   START ──→  Injects rules, recent context,         │
-│              last session's handoff, patterns        │
+│   START ──→  Injects rules, predicted focus,        │
+│              recent context, last handoff            │
 │                                                     │
 │   WORK ───→  Claude saves and searches context      │
 │              Git watcher auto-indexes in background  │
@@ -313,7 +329,8 @@ Three hooks handle the lifecycle automatically:
 │   COMPRESS →  Preserves important context before     │
 │               conversation is compressed             │
 │                                                     │
-│   END ────→  Saves handoff for next session          │
+│   END ────→  Saves handoff, detects corrections,    │
+│              auto-captures declarations/preferences  │
 │                                                     │
 └─────────────────────────────────────────────────────┘
 ```
@@ -373,7 +390,7 @@ Interested in Synaptic for your team? **[Get in touch →](mailto:hyperlynq@outl
 
 ```bash
 npm run build            # Compile TypeScript
-npm run smoke-test       # Build + run all 130 tests
+npm run smoke-test       # Build + run all 147 tests
 ```
 
 <br>
