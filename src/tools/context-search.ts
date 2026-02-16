@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { ContextIndex } from "../storage/sqlite.js";
 import { Embedder } from "../storage/embedder.js";
+import { getCurrentProject } from "../server.js";
 
 export const contextSearchSchema = {
   query: z.string().describe("Search query (hybrid semantic + keyword search)"),
@@ -89,6 +90,7 @@ export async function contextSearch(
       limit: args.limit,
       tier: args.tier,
       includeArchived: args.include_archived,
+      project: getCurrentProject(),
     });
   }
 

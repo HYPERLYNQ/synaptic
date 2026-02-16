@@ -12,6 +12,7 @@ import { ContextIndex } from "../storage/sqlite.js";
 import { Embedder } from "../storage/embedder.js";
 import { ensureDirs, DB_DIR } from "../storage/paths.js";
 import { detectProject } from "../storage/project.js";
+import { getSessionId } from "../storage/session.js";
 
 const DEBOUNCE_FILE = join(DB_DIR, ".last-handoff");
 const DEBOUNCE_MS = 5 * 60 * 1000; // 5 minutes
@@ -63,6 +64,15 @@ async function main(): Promise<void> {
 
   const index = new ContextIndex();
   const embedder = new Embedder();
+
+  const enrichInsert = (entry: import("../storage/markdown.js").ContextEntry): number => {
+    return index.insert({
+      ...entry,
+      project: detectProject() ?? undefined,
+      sessionId: getSessionId(),
+      agentId: "system",
+    });
+  };
 
   try {
     // Check if there's been meaningful activity today
@@ -169,7 +179,7 @@ async function main(): Promise<void> {
                 ["rule_conflict", `conflicts-with:${rule.label}`]
               );
               conflictEntry.tier = "working";
-              const conflictRowid = index.insert(conflictEntry);
+              const conflictRowid = enrichInsert(conflictEntry);
               const conflictEmb = await embedder.embed(conflictEntry.content);
               index.insertVec(conflictRowid, conflictEmb);
             }
@@ -187,7 +197,7 @@ async function main(): Promise<void> {
             ["pending_rule", `proposed-label:${label}`]
           );
           pendingEntry.tier = "working";
-          const corrRowid = index.insert(pendingEntry);
+          const corrRowid = enrichInsert(pendingEntry);
           const emb = await embedder.embed(corr.content);
           index.insertVec(corrRowid, emb);
         }
@@ -201,7 +211,7 @@ async function main(): Promise<void> {
 
     const entry = appendEntry(content, "handoff", tagList);
     entry.tier = ContextIndex.assignTier(entry.type);
-    const rowid = index.insert(entry);
+    const rowid = enrichInsert(entry);
     const embedding = await embedder.embed(entry.content);
     index.insertVec(rowid, embedding);
     updateDebounceTimestamp();

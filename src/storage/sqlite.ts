@@ -470,7 +470,7 @@ export class ContextIndex {
   hybridSearch(
     query: string,
     embedding: Float32Array,
-    opts: { type?: string; days?: number; limit?: number; tier?: string; includeArchived?: boolean } = {}
+    opts: { type?: string; days?: number; limit?: number; tier?: string; includeArchived?: boolean; project?: string | null } = {}
   ): ContextEntry[] {
     const limit = opts.limit ?? 20;
     // Fetch more candidates than needed for RRF merging
@@ -515,6 +515,13 @@ export class ContextIndex {
     });
 
     const today = new Date();
+    const currentProject = opts.project ?? null;
+
+    const projectBoost = (entryProject: string | null | undefined, curProject: string | null): number => {
+      if (!curProject || !entryProject) return 1.0;
+      return entryProject === curProject ? 1.5 : 1.0;
+    };
+
     const tierWeight = (tier: string | undefined): number => {
       switch (tier) {
         case "longterm": return 1.5;
@@ -537,7 +544,7 @@ export class ContextIndex {
       const decay = Math.pow(0.5, ageDays / 30);
       return {
         entry,
-        score: (scores.get(rowid) ?? 0) * decay * tierWeight(entry.tier) * confidenceBoost(entry.accessCount ?? 0),
+        score: (scores.get(rowid) ?? 0) * decay * tierWeight(entry.tier) * confidenceBoost(entry.accessCount ?? 0) * projectBoost(entry.project, currentProject),
       };
     });
 
