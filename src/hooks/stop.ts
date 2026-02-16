@@ -149,6 +149,34 @@ async function main(): Promise<void> {
         }
       }
 
+      // Check for conflicts with existing rules
+      const existingRules = index.listRules();
+      if (existingRules.length > 0 && corrections.length > 0) {
+        for (const corr of corrections) {
+          const corrEmb = await embedder.embed(corr.content);
+          for (const rule of existingRules) {
+            const ruleEmb = await embedder.embed(rule.content);
+            // Cosine similarity (both L2-normalized)
+            let dot = 0;
+            for (let i = 0; i < corrEmb.length; i++) {
+              dot += corrEmb[i] * ruleEmb[i];
+            }
+            if (dot >= 0.7) {
+              // Conflict detected — save as conflict entry
+              const conflictEntry = appendEntry(
+                `Conflict: new correction "${corr.content.slice(0, 80)}" may contradict rule "${rule.label}": "${rule.content.slice(0, 80)}"`,
+                "insight",
+                ["rule_conflict", `conflicts-with:${rule.label}`]
+              );
+              conflictEntry.tier = "working";
+              const conflictRowid = index.insert(conflictEntry);
+              const conflictEmb = await embedder.embed(conflictEntry.content);
+              index.insertVec(conflictRowid, conflictEmb);
+            }
+          }
+        }
+      }
+
       // Save corrections as pending rule proposals
       if (corrections.length > 0) {
         for (const corr of corrections.slice(0, 3)) {
