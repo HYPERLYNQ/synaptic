@@ -11,6 +11,7 @@ import { dirname } from "node:path";
 import { ContextIndex } from "../src/storage/sqlite.js";
 import { Embedder } from "../src/storage/embedder.js";
 import { getGitLog, formatCommitAsContent } from "../src/storage/git.js";
+import { detectProject, resetProjectCache } from "../src/storage/project.js";
 import type { ContextEntry } from "../src/storage/markdown.js";
 
 const DB_PATH = "/tmp/claude/synaptic-smoke-test.db";
@@ -403,6 +404,19 @@ async function main(): Promise<void> {
   assert(indexes.some(i => i.name === "idx_entries_session"), "idx_entries_session index exists");
   assert(indexes.some(i => i.name === "idx_file_pairs_lookup"), "idx_file_pairs_lookup index exists");
   rawDb3.close();
+
+  // -------------------------------------------------------
+  // 14. Test project auto-detection
+  // -------------------------------------------------------
+  console.log("\n[14] Project auto-detection");
+
+  resetProjectCache();
+  const projectFromGit = detectProject(PROJECT_DIR);
+  assert(projectFromGit === "synaptic", `detectProject from git repo = "synaptic" (got "${projectFromGit}")`);
+
+  resetProjectCache();
+  const projectFromFolder = detectProject("/tmp/claude/fake-project");
+  assert(projectFromFolder === "fake-project", `detectProject from folder name = "fake-project" (got "${projectFromFolder}")`);
 
   // -------------------------------------------------------
   // Summary
