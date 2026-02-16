@@ -704,6 +704,58 @@ async function main(): Promise<void> {
   assert(dnaEntries[0].tier === "longterm", "DNA entry has longterm tier");
 
   // -------------------------------------------------------
+  // 26. Decision chains
+  // -------------------------------------------------------
+  console.log("\n[26] Decision chains");
+
+  index.clearAll();
+
+  const { contextChain } = await import("../src/tools/context-chain.js");
+
+  const chainId = "test1234";
+  const chainTag = `chain:${chainId}`;
+
+  const decision1 = makeEntry({
+    type: "decision",
+    content: "Use SQLite instead of LevelDB",
+    tags: [chainTag, "database"],
+  });
+  index.insert(decision1);
+
+  const progress1 = makeEntry({
+    type: "progress",
+    content: "SQLite migration complete",
+    tags: [chainTag],
+  });
+  index.insert(progress1);
+
+  const issue1 = makeEntry({
+    type: "issue",
+    content: "SQLite WAL conflicts with WSL",
+    tags: [chainTag, "bug"],
+  });
+  index.insert(issue1);
+
+  const decision2 = makeEntry({
+    type: "decision",
+    content: "Switch to journal_mode=DELETE",
+    tags: [chainTag],
+  });
+  index.insert(decision2);
+
+  const chainResult = contextChain({ chain_id: chainId }, index);
+  assert(chainResult.total === 4, `Chain has 4 entries (got ${chainResult.total})`);
+  assert(chainResult.chain_id === chainId, "Chain ID matches");
+  assert((chainResult.entries[0] as Record<string, unknown>).type === "decision", "First entry is decision");
+  assert((chainResult.entries[3] as Record<string, unknown>).type === "decision", "Last entry is decision");
+
+  const chainResult2 = contextChain({ chain_id: `chain:${chainId}` }, index);
+  assert(chainResult2.total === 4, "Chain query with prefix also works");
+
+  const emptyChain = contextChain({ chain_id: "nonexistent" }, index);
+  assert(emptyChain.total === 0, "Non-existent chain returns 0 entries");
+
+  // -------------------------------------------------------
   // Summary
   // -------------------------------------------------------
   index.close();
