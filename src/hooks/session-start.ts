@@ -155,7 +155,21 @@ async function main(): Promise<void> {
     if (patterns.length > 0) {
       budgetForPatterns.push("## Recurring Issues");
       for (const p of patterns) {
-        budgetForPatterns.push(`- "${p.label}" — ${p.occurrenceCount}x (last: ${p.lastSeen.slice(5)})`);
+        const isFailure = p.label.startsWith("Pre-commit failure");
+        if (isFailure) {
+          const allEntries = index.list({ days: 30 });
+          const fileTags = p.entryIds
+            .flatMap(id => {
+              const entry = allEntries.find(e => e.id === id);
+              return entry ? entry.tags.filter(t => t.startsWith("file:")) : [];
+            })
+            .map(t => t.replace("file:", ""));
+          const uniqueFiles = [...new Set(fileTags)].slice(0, 3);
+          const fileStr = uniqueFiles.length > 0 ? ` (${uniqueFiles.join(", ")})` : "";
+          budgetForPatterns.push(`- pre-commit failure${fileStr} — ${p.occurrenceCount}x (last: ${p.lastSeen.slice(5)})`);
+        } else {
+          budgetForPatterns.push(`- "${p.label}" — ${p.occurrenceCount}x (last: ${p.lastSeen.slice(5)})`);
+        }
       }
       budgetForPatterns.push("");
     }
