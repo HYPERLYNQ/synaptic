@@ -16,6 +16,7 @@ import { contextDeleteRule, contextDeleteRuleSchema } from "./tools/context-dele
 import { contextListRules } from "./tools/context-list-rules.js";
 import { contextSession, contextSessionSchema } from "./tools/context-session.js";
 import { contextCochanges, contextCochangesSchema } from "./tools/context-cochanges.js";
+import { GitWatcher } from "./storage/watcher.js";
 
 let _embedder: Embedder;
 let _currentProject: string | null = null;
@@ -37,9 +38,17 @@ export function createServer(): McpServer {
   _embedder = new Embedder();
   const embedder = _embedder;
 
+  // Start git event watcher (silent no-op if not a git repo)
+  const watcher = new GitWatcher({
+    index,
+    embedder,
+    getCurrentProject: () => _currentProject,
+  });
+  watcher.start();
+
   const server = new McpServer({
     name: "synaptic",
-    version: "0.5.0",
+    version: "0.6.0-alpha.1",
   });
 
   server.tool(
