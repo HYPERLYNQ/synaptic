@@ -467,6 +467,15 @@ export class ContextIndex {
     ).run(now, ...ids);
   }
 
+  /** Increment access_count and set last_accessed for a given entry ID */
+  touchEntry(id: string): boolean {
+    const today = new Date().toISOString().slice(0, 10);
+    const result = this.db.prepare(
+      "UPDATE entries SET access_count = access_count + 1, last_accessed = ? WHERE id = ? AND archived = 0"
+    ).run(today, id);
+    return result.changes > 0;
+  }
+
   hybridSearch(
     query: string,
     embedding: Float32Array,

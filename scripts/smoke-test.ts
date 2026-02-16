@@ -772,6 +772,33 @@ async function main(): Promise<void> {
   assert(existsSync(join(PROJECT_DIR, "build", "src", "tools", "context-chain.js")), "Chain tool built");
 
   // -------------------------------------------------------
+  // 28. Test touchEntry
+  // -------------------------------------------------------
+  console.log("\n[28] touchEntry");
+
+  index.clearAll();
+
+  const touchTarget = makeEntry({ type: "insight", content: "Entry to be touched for access bump" });
+  index.insert(touchTarget);
+
+  // Verify initial state
+  const beforeTouch = index.list().find(e => e.id === touchTarget.id);
+  assert(beforeTouch !== undefined && beforeTouch.accessCount === 0, `Before touch: accessCount=0 (got ${beforeTouch?.accessCount})`);
+  assert(beforeTouch!.lastAccessed === null, `Before touch: lastAccessed=null`);
+
+  // Touch it
+  index.touchEntry(touchTarget.id);
+
+  const afterTouch = index.list().find(e => e.id === touchTarget.id);
+  assert(afterTouch !== undefined && afterTouch.accessCount === 1, `After touch: accessCount=1 (got ${afterTouch?.accessCount})`);
+  assert(afterTouch!.lastAccessed !== null, `After touch: lastAccessed is set`);
+
+  // Touch again
+  index.touchEntry(touchTarget.id);
+  const afterSecondTouch = index.list().find(e => e.id === touchTarget.id);
+  assert(afterSecondTouch!.accessCount === 2, `After second touch: accessCount=2 (got ${afterSecondTouch?.accessCount})`);
+
+  // -------------------------------------------------------
   // Summary
   // -------------------------------------------------------
   index.close();
