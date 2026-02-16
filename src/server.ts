@@ -15,6 +15,7 @@ import { contextSaveRule, contextSaveRuleSchema } from "./tools/context-save-rul
 import { contextDeleteRule, contextDeleteRuleSchema } from "./tools/context-delete-rule.js";
 import { contextListRules } from "./tools/context-list-rules.js";
 import { contextSession, contextSessionSchema } from "./tools/context-session.js";
+import { contextCochanges, contextCochangesSchema } from "./tools/context-cochanges.js";
 
 let _embedder: Embedder;
 let _currentProject: string | null = null;
@@ -167,6 +168,18 @@ export function createServer(): McpServer {
     contextSessionSchema,
     async (args) => {
       const result = contextSession(args, index);
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+      };
+    }
+  );
+
+  server.tool(
+    "context_cochanges",
+    "Get files that frequently co-change with a given file, based on git history.",
+    contextCochangesSchema,
+    async (args) => {
+      const result = contextCochanges(args, index);
       return {
         content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
       };
