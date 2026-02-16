@@ -98,6 +98,22 @@ async function main(): Promise<void> {
       budgetForPending.push("");
     }
 
+    // Rule conflicts
+    const conflicts = index.list({ days: 7 })
+      .filter(e => e.tags.includes("rule_conflict") && !e.archived);
+
+    if (conflicts.length > 0) {
+      if (budgetForPending.length === 0) {
+        budgetForPending.push("## Pending rules (approve or dismiss)");
+      }
+      for (const c of conflicts.slice(0, 2)) {
+        budgetForPending.push(`- CONFLICT: ${c.content.slice(0, 120)}`);
+      }
+      if (budgetForPending[budgetForPending.length - 1] !== "") {
+        budgetForPending.push("");
+      }
+    }
+
     // --- SECTION 2: Recent context (last 3 days, compact, project-boosted) ---
     const budgetForContext: string[] = [];
     const recent = index.list({ days: 3 })
