@@ -136,8 +136,11 @@ export async function contextDna(
     })
     .join(", ");
 
-  // 5. Co-change clusters
-  const recentCommits = getGitLog(repoPath, { days: 30 });
+  // 5. Co-change clusters (reuse already-fetched commits, filter to last 30 days)
+  const thirtyDaysAgo = new Date();
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  const thirtyDaysCutoff = thirtyDaysAgo.toISOString().slice(0, 10);
+  const recentCommits = allCommits.filter(c => c.date >= thirtyDaysCutoff);
   const recentFiles = new Set<string>();
   for (const commit of recentCommits) {
     for (const file of commit.files) {
