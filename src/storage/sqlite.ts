@@ -951,6 +951,83 @@ export class ContextIndex {
     }));
   }
 
+  /** Update an entry's content (for consolidation) */
+  updateEntryContent(id: string, newContent: string): boolean {
+    // Fetch current row data for FTS removal
+    const row = this.db.prepare(
+      "SELECT rowid, content, tags, type FROM entries WHERE id = ?"
+    ).get(id) as { rowid: number; content: string; tags: string; type: string } | undefined;
+    if (!row) return false;
+
+    // Remove old FTS entry using the delete command, then update, then re-insert.
+    // We temporarily drop and recreate triggers to avoid interference.
+    this.db.exec("DROP TRIGGER IF EXISTS entries_ai");
+    this.db.exec("DROP TRIGGER IF EXISTS entries_ad");
+
+    // Delete the old FTS row by rowid
+    this.db.prepare("DELETE FROM entries_fts WHERE rowid = ?").run(row.rowid);
+
+    // Update the content in entries table
+    const result = this.db.prepare(
+      "UPDATE entries SET content = ? WHERE id = ?"
+    ).run(newContent, id);
+
+    // Re-insert FTS entry with updated content
+    if (result.changes > 0) {
+      this.db.prepare(
+        "INSERT INTO entries_fts(rowid, content, tags, type) VALUES (?, ?, ?, ?)"
+      ).run(row.rowid, newContent, row.tags, row.type);
+    }
+
+    // Recreate triggers
+    this.db.exec(`
+      CREATE TRIGGER entries_ai AFTER INSERT ON entries BEGIN
+        INSERT INTO entries_fts(rowid, content, tags, type)
+        VALUES (new.rowid, new.content, new.tags, new.type);
+      END
+    `);
+    this.db.exec(`
+      CREATE TRIGGER entries_ad AFTER DELETE ON entries BEGIN
+        INSERT INTO entries_fts(entries_fts, rowid, content, tags, type)
+        VALUES ('delete', old.rowid, old.content, old.tags, old.type);
+      END
+    `);
+
+    return result.changes > 0;
+  }
+
+  /** Merge tags from source entries into a target entry */
+  mergeTagsInto(targetId: string, sourceIds: string[]): void {
+    const targetRow = this.db.prepare(
+      "SELECT tags FROM entries WHERE id = ?"
+    ).get(targetId) as { tags: string } | undefined;
+    if (!targetRow) return;
+
+    const allTags = new Set<string>(targetRow.tags.split(", ").filter(Boolean));
+    for (const srcId of sourceIds) {
+      const srcRow = this.db.prepare(
+        "SELECT tags FROM entries WHERE id = ?"
+      ).get(srcId) as { tags: string } | undefined;
+      if (srcRow) {
+        for (const tag of srcRow.tags.split(", ").filter(Boolean)) {
+          allTags.add(tag);
+        }
+      }
+    }
+
+    this.db.prepare(
+      "UPDATE entries SET tags = ? WHERE id = ?"
+    ).run([...allTags].join(", "), targetId);
+  }
+
+  /** Change tier for an entry */
+  changeTier(id: string, tier: string): boolean {
+    const result = this.db.prepare(
+      "UPDATE entries SET tier = ? WHERE id = ?"
+    ).run(tier, id);
+    return result.changes > 0;
+  }
+
   close(): void {
     this.db.close();
   }
