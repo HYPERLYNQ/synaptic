@@ -759,10 +759,10 @@ async function main(): Promise<void> {
   // -------------------------------------------------------
   // 27. v0.6.0 integration check
   // -------------------------------------------------------
-  console.log("\n[27] v0.6.0 integration");
+  console.log("\n[27] v0.7.0 integration");
 
   const pkgFinal = JSON.parse(readFileSync(join(PROJECT_DIR, "package.json"), "utf-8"));
-  assert(pkgFinal.version === "0.6.0", `Version is 0.6.0 (got ${pkgFinal.version})`);
+  assert(pkgFinal.version === "0.7.0", `Version is 0.7.0 (got ${pkgFinal.version})`);
   assert(pkgFinal.bin?.synaptic === "build/src/cli.js", "bin field points to CLI");
 
   assert(existsSync(join(PROJECT_DIR, "build", "src", "cli.js")), "CLI entry point built");
