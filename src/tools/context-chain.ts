@@ -15,14 +15,8 @@ export function contextChain(
     ? args.chain_id
     : `chain:${args.chain_id}`;
 
-  const allRecent = index.list({ days: 365 });
-  const chainEntries = allRecent
-    .filter(e => e.tags.includes(chainTag))
-    .sort((a, b) => {
-      const dateCompare = a.date.localeCompare(b.date);
-      if (dateCompare !== 0) return dateCompare;
-      return a.time.localeCompare(b.time);
-    });
+  // SQL-level filtering via LIKE query — no need to load all entries into memory
+  const chainEntries = index.findByTag(chainTag);
 
   return {
     chain_id: args.chain_id,

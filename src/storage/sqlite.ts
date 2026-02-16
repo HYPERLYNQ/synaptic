@@ -678,6 +678,33 @@ export class ContextIndex {
     return !!row;
   }
 
+  findByTag(tag: string): ContextEntry[] {
+    const sql = `
+      SELECT id, date, time, type, tags, content, source_file, tier, access_count, last_accessed, pinned, archived, project, session_id, agent_id
+      FROM entries
+      WHERE tags LIKE ? AND archived = 0
+      ORDER BY date ASC, time ASC
+    `;
+    const rows = this.db.prepare(sql).all(`%${tag}%`) as Record<string, unknown>[];
+    return rows.map((row) => ({
+      id: row.id as string,
+      date: row.date as string,
+      time: row.time as string,
+      type: row.type as string,
+      tags: (row.tags as string).split(", ").filter(Boolean),
+      content: row.content as string,
+      sourceFile: row.source_file as string,
+      tier: row.tier as ContextEntry["tier"],
+      accessCount: row.access_count as number,
+      lastAccessed: row.last_accessed as string | null,
+      pinned: !!(row.pinned as number),
+      archived: !!(row.archived as number),
+      project: row.project as string | null,
+      sessionId: row.session_id as string | null,
+      agentId: row.agent_id as string | null,
+    }));
+  }
+
   findSimilarIssues(embedding: Float32Array, days: number = 30, distanceThreshold: number = 0.5): ContextEntry[] {
     // sqlite-vec distance: lower = more similar. ~0.5 distance ≈ ~0.75 cosine similarity for normalized vectors
     const vecResults = this.searchVec(embedding, 20);
