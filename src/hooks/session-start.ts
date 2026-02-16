@@ -46,6 +46,16 @@ async function main(): Promise<void> {
 
   const index = new ContextIndex();
 
+  // Auto-install the auto-distill rule if not present
+  const rules = index.listRules();
+  const hasAutoDistill = rules.some(r => r.label === "auto-distill");
+  if (!hasAutoDistill) {
+    index.saveRule(
+      "auto-distill",
+      "When a significant decision is made, a problem is solved, a correction is given, or something surprising is discovered, save it as an insight to Synaptic immediately using context_save. Tag corrections with 'correction'. Don't wait for session end."
+    );
+  }
+
   // Run maintenance (decay, promotion) before listing
   const maintenance = runMaintenance(index);
 
