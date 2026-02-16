@@ -592,6 +592,20 @@ async function main(): Promise<void> {
   assert(cochanges3.length === 1, `1 co-change at threshold 3 after 3 occurrences`);
 
   // -------------------------------------------------------
+  // 22. Environment detection
+  // -------------------------------------------------------
+  console.log("\n[22] Environment detection");
+
+  const { detectEnvironment } = await import("../src/cli/init.js");
+  const env = detectEnvironment();
+
+  assert(typeof env.isWSL === "boolean", "detectEnvironment returns isWSL boolean");
+  assert(typeof env.settingsPath === "string" && env.settingsPath.length > 0, "detectEnvironment returns settingsPath");
+  assert(typeof env.buildDir === "string" && env.buildDir.length > 0, "detectEnvironment returns buildDir");
+  assert(typeof env.nodeCommand === "string", "detectEnvironment returns nodeCommand");
+  assert(Array.isArray(env.nodeArgs), "detectEnvironment returns nodeArgs array");
+
+  // -------------------------------------------------------
   // Summary
   // -------------------------------------------------------
   index.close();
