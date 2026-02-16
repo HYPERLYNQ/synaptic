@@ -2,9 +2,9 @@
  * SessionStart hook: Injects rules + recent context into Claude's conversation.
  * Stdout from this hook is automatically added to Claude's context.
  *
- * Injection priority (token budget ~3200 chars):
+ * Injection priority (token budget ~4000 chars):
  * 1. Rules (always full, never truncated)
- * 2. Recent context (last 3 days, compact format)
+ * 2. Recent context (last 3 days, compact format, same-project boosted)
  * 3. Most recent handoff note (1 only)
  * 4. Recurring patterns
  * 5. Maintenance summary (only if something changed)
@@ -15,8 +15,9 @@ import { ensureDirs } from "../storage/paths.js";
 import { runMaintenance } from "../storage/maintenance.js";
 import { Embedder } from "../storage/embedder.js";
 import { contextGitIndex } from "../tools/context-git-index.js";
+import { detectProject } from "../storage/project.js";
 
-const TOKEN_BUDGET_CHARS = 3200; // ~800 tokens
+const TOKEN_BUDGET_CHARS = 4000; // ~1000 tokens
 
 interface SessionStartInput {
   source: string;
@@ -24,6 +25,8 @@ interface SessionStartInput {
 
 async function main(): Promise<void> {
   ensureDirs();
+
+  const currentProject = detectProject();
 
   let input: SessionStartInput = { source: "startup" };
   try {
@@ -67,10 +70,18 @@ async function main(): Promise<void> {
     }
     charCount = lines.join("\n").length;
 
-    // --- SECTION 2: Recent context (last 3 days, compact) ---
+    // --- SECTION 2: Recent context (last 3 days, compact, project-boosted) ---
     const budgetForContext: string[] = [];
     const recent = index.list({ days: 3 })
-      .filter(e => e.tier !== "ephemeral" && e.type !== "handoff" && e.type !== "rule");
+      .filter(e => e.tier !== "ephemeral" && e.type !== "handoff" && e.type !== "rule")
+      .sort((a, b) => {
+        // Same project first
+        const aMatch = a.project === currentProject ? 1 : 0;
+        const bMatch = b.project === currentProject ? 1 : 0;
+        if (aMatch !== bMatch) return bMatch - aMatch;
+        // Then by date/time desc
+        return 0; // already sorted by date desc from list()
+      });
     if (recent.length > 0) {
       budgetForContext.push("## Recent Context (last 3 days)");
       let currentDate = "";
