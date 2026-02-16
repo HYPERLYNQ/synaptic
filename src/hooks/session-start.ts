@@ -266,13 +266,14 @@ async function main(): Promise<void> {
 
     // --- SECTION 7: Maintenance (only if something happened) ---
     const budgetForMaint: string[] = [];
-    const maintTotal = maintenance.decayed + maintenance.demoted + maintenance.promotedStable + maintenance.promotedFrequent;
+    const maintTotal = maintenance.decayed + maintenance.demoted + maintenance.promotedStable + maintenance.promotedFrequent + maintenance.consolidated;
     if (maintTotal > 0) {
       const parts: string[] = [];
       if (maintenance.decayed > 0) parts.push(`${maintenance.decayed} archived`);
       if (maintenance.demoted > 0) parts.push(`${maintenance.demoted} demoted`);
       if (maintenance.promotedStable > 0) parts.push(`${maintenance.promotedStable} promoted`);
       if (maintenance.promotedFrequent > 0) parts.push(`${maintenance.promotedFrequent} promoted`);
+      if (maintenance.consolidated > 0) parts.push(`${maintenance.consolidated} consolidated`);
       budgetForMaint.push(`_Maintenance: ${parts.join(", ")}._`);
     }
 
