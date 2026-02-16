@@ -6,8 +6,8 @@
  * Usage: npm run smoke-test
  */
 
-import { unlinkSync, existsSync, mkdirSync } from "node:fs";
-import { dirname } from "node:path";
+import { unlinkSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { ContextIndex } from "../src/storage/sqlite.js";
 import { Embedder } from "../src/storage/embedder.js";
 import { getGitLog, formatCommitAsContent } from "../src/storage/git.js";
@@ -754,6 +754,22 @@ async function main(): Promise<void> {
 
   const emptyChain = contextChain({ chain_id: "nonexistent" }, index);
   assert(emptyChain.total === 0, "Non-existent chain returns 0 entries");
+
+  // -------------------------------------------------------
+  // 27. v0.6.0 integration check
+  // -------------------------------------------------------
+  console.log("\n[27] v0.6.0 integration");
+
+  const pkgFinal = JSON.parse(readFileSync(join(PROJECT_DIR, "package.json"), "utf-8"));
+  assert(pkgFinal.version === "0.6.0", `Version is 0.6.0 (got ${pkgFinal.version})`);
+  assert(pkgFinal.bin?.synaptic === "build/src/cli.js", "bin field points to CLI");
+
+  assert(existsSync(join(PROJECT_DIR, "build", "src", "cli.js")), "CLI entry point built");
+  assert(existsSync(join(PROJECT_DIR, "build", "src", "cli", "init.js")), "Init command built");
+  assert(existsSync(join(PROJECT_DIR, "build", "src", "cli", "pre-commit.js")), "Pre-commit script built");
+  assert(existsSync(join(PROJECT_DIR, "build", "src", "storage", "watcher.js")), "Watcher module built");
+  assert(existsSync(join(PROJECT_DIR, "build", "src", "tools", "context-dna.js")), "DNA tool built");
+  assert(existsSync(join(PROJECT_DIR, "build", "src", "tools", "context-chain.js")), "Chain tool built");
 
   // -------------------------------------------------------
   // Summary
