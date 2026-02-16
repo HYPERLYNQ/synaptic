@@ -523,12 +523,22 @@ export class ContextIndex {
       }
     };
 
+    const confidenceBoost = (accessCount: number): number => {
+      if (accessCount === 0) return 0.7;
+      if (accessCount <= 2) return 1.0;
+      if (accessCount <= 5) return 1.2;
+      return 1.4;
+    };
+
     const scored = allRowids.map((rowid) => {
       const entry = entryMap.get(rowid)!;
       const entryDate = new Date(entry.date);
       const ageDays = (today.getTime() - entryDate.getTime()) / (1000 * 60 * 60 * 24);
       const decay = Math.pow(0.5, ageDays / 30);
-      return { entry, score: (scores.get(rowid) ?? 0) * decay * tierWeight(entry.tier) };
+      return {
+        entry,
+        score: (scores.get(rowid) ?? 0) * decay * tierWeight(entry.tier) * confidenceBoost(entry.accessCount ?? 0),
+      };
     });
 
     // 5. Filter, sort by score descending, return top N
