@@ -17,6 +17,7 @@ import { contextListRules } from "./tools/context-list-rules.js";
 import { contextSession, contextSessionSchema } from "./tools/context-session.js";
 import { contextCochanges, contextCochangesSchema } from "./tools/context-cochanges.js";
 import { contextDna, contextDnaSchema } from "./tools/context-dna.js";
+import { contextChain, contextChainSchema } from "./tools/context-chain.js";
 import { GitWatcher } from "./storage/watcher.js";
 
 let _embedder: Embedder;
@@ -202,6 +203,18 @@ export function createServer(): McpServer {
     contextDnaSchema,
     async (args) => {
       const result = await contextDna(args, index, embedder);
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+      };
+    }
+  );
+
+  server.tool(
+    "context_chain",
+    "Retrieve all entries in a decision chain by chain ID. Returns entries chronologically.",
+    contextChainSchema,
+    async (args) => {
+      const result = contextChain(args, index);
       return {
         content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
       };
