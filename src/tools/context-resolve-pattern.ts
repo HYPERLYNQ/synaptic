@@ -2,7 +2,7 @@ import { z } from "zod";
 import { ContextIndex } from "../storage/sqlite.js";
 
 export const contextResolvePatternSchema = {
-  pattern_id: z.string().describe("Pattern ID to mark as resolved"),
+  pattern_id: z.string().max(200).describe("Pattern ID to mark as resolved"),
 };
 
 export function contextResolvePattern(

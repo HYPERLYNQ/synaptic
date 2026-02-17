@@ -3,7 +3,7 @@ import { ContextIndex } from "../storage/sqlite.js";
 import { getCurrentProject } from "../server.js";
 
 export const contextCochangesSchema = {
-  file: z.string().describe("File path to look up co-changes for"),
+  file: z.string().max(500).describe("File path to look up co-changes for"),
   project: z
     .string()
     .optional()

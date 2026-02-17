@@ -5,6 +5,7 @@ import { getSessionId } from "../storage/session.js";
 export const contextSessionSchema = {
   session_id: z
     .string()
+    .max(200)
     .optional()
     .describe("Session ID to query. Defaults to current session."),
   type: z

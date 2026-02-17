@@ -2,7 +2,7 @@ import { z } from "zod";
 import { ContextIndex } from "../storage/sqlite.js";
 
 export const contextDeleteRuleSchema = {
-  label: z.string().describe("Label of the rule to delete"),
+  label: z.string().max(200).describe("Label of the rule to delete"),
 };
 
 export function contextDeleteRule(

@@ -24,7 +24,7 @@ async function main(): Promise<void> {
   // Validate the file path is within .git/ to prevent arbitrary file reads
   const resolvedPath = resolve(commitMsgFile);
   const gitDir = join(process.cwd(), ".git");
-  if (!resolvedPath.startsWith(gitDir)) {
+  if (resolvedPath !== gitDir && !resolvedPath.startsWith(gitDir + "/")) {
     process.exit(0);
   }
 
