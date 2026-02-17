@@ -13,7 +13,7 @@
 
 **Claude forgets everything between sessions. Synaptic fixes that.**
 
-[![Version](https://img.shields.io/badge/version-0.7.1-blue)](https://github.com/HYPERLYNQ/synaptic)
+[![Version](https://img.shields.io/badge/version-0.7.2-blue)](https://github.com/HYPERLYNQ/synaptic)
 [![Tests](https://img.shields.io/badge/tests-164%20passing-brightgreen)](https://github.com/HYPERLYNQ/synaptic)
 [![Node](https://img.shields.io/badge/node-22%2B-339933)](https://nodejs.org)
 [![License](https://img.shields.io/badge/license-source--available-orange)](LICENSE)
