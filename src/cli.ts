@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { initCommand } from "./cli/init.js";
+import { syncCommand } from "./cli/sync.js";
 
 const USAGE = `
 synaptic — persistent local memory for Claude Code
@@ -10,6 +11,7 @@ Usage:
 
 Commands:
   init          Initialize synaptic in the current project
+  sync          Manage GitHub-based context sync
 
 Options:
   -h, --help    Show this help message
@@ -27,6 +29,9 @@ async function main() {
   switch (command) {
     case "init":
       await initCommand(args.slice(1));
+      break;
+    case "sync":
+      await syncCommand(args.slice(1));
       break;
     default:
       console.error(`Unknown command: ${command}`);

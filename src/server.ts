@@ -19,6 +19,7 @@ import { contextCochanges, contextCochangesSchema } from "./tools/context-cochan
 import { contextDna, contextDnaSchema } from "./tools/context-dna.js";
 import { contextChain, contextChainSchema } from "./tools/context-chain.js";
 import { GitWatcher } from "./storage/watcher.js";
+import { SyncScheduler } from "./storage/sync-background.js";
 
 let _embedder: Embedder;
 let _currentProject: string | null = null;
@@ -47,6 +48,10 @@ export function createServer(): McpServer {
     getCurrentProject: () => _currentProject,
   });
   watcher.start();
+
+  // Start background sync (no-op if sync not configured)
+  const syncScheduler = new SyncScheduler(index, embedder);
+  syncScheduler.start();
 
   const server = new McpServer({
     name: "synaptic",

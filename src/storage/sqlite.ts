@@ -321,6 +321,16 @@ export class ContextIndex {
     }));
   }
 
+  hasEntry(id: string): boolean {
+    const row = this.db.prepare("SELECT 1 FROM entries WHERE id = ?").get(id);
+    return !!row;
+  }
+
+  getAllEntryIds(): Set<string> {
+    const rows = this.db.prepare("SELECT id FROM entries").all() as Array<{ id: string }>;
+    return new Set(rows.map(r => r.id));
+  }
+
   list(opts: { days?: number; type?: string; includeArchived?: boolean } = {}): ContextEntry[] {
     const conditions: string[] = [];
     const params: (string | number)[] = [];
