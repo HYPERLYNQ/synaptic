@@ -18,6 +18,7 @@ import { Embedder } from "../storage/embedder.js";
 import { contextGitIndex } from "../tools/context-git-index.js";
 import { detectProject } from "../storage/project.js";
 import { getRecentlyChangedFiles, isGitRepo, getCurrentBranch } from "../storage/git.js";
+import { isSyncEnabled, readSyncState, pullEntries } from "../storage/sync.js";
 
 const TOKEN_BUDGET_CHARS = 4000; // ~1000 tokens
 
@@ -64,6 +65,20 @@ async function main(): Promise<void> {
     const embedder = new Embedder();
     try {
       await contextGitIndex({ days: 1 }, index, embedder);
+    } catch {
+      // Don't block session start
+    }
+
+    // Pull synced entries from other machines
+    let syncPulled = 0;
+    try {
+      if (isSyncEnabled()) {
+        const syncState = readSyncState();
+        if (syncState) {
+          const result = await pullEntries(index, embedder, syncState);
+          syncPulled = result.pulled;
+        }
+      }
     } catch {
       // Don't block session start
     }
@@ -305,7 +320,8 @@ async function main(): Promise<void> {
 
     // Always append entry count (tiny)
     const stats = index.status();
-    lines.push(`\n_${stats.totalEntries} total entries in context store._`);
+    const syncNote = syncPulled > 0 ? ` | ${syncPulled} synced from other machines` : "";
+    lines.push(`\n_${stats.totalEntries} total entries in context store.${syncNote}_`);
 
     if (lines.length <= 1) return; // Nothing to inject
 

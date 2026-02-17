@@ -25,6 +25,7 @@ import {
   readToolUseActions,
 } from "../storage/transcript.js";
 import { extractCheckPatterns, checkMessageAgainstPatterns } from "../cli/rule-patterns.js";
+import { isSyncEnabled, readSyncState, pushEntries } from "../storage/sync.js";
 
 const DEBOUNCE_FILE = join(DB_DIR, ".last-handoff");
 const DEBOUNCE_MS = 5 * 60 * 1000; // 5 minutes
@@ -434,6 +435,16 @@ async function main(): Promise<void> {
     }
 
     updateDebounceTimestamp();
+
+    // Push entries to GitHub sync
+    try {
+      if (isSyncEnabled()) {
+        const syncState = readSyncState();
+        if (syncState) await pushEntries(index, syncState);
+      }
+    } catch {
+      // Don't fail the hook
+    }
   } finally {
     index.close();
   }

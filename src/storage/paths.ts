@@ -7,11 +7,14 @@ export const CONTEXT_DIR = join(BASE_DIR, "context");
 export const DB_DIR = join(BASE_DIR, "db");
 export const DB_PATH = join(DB_DIR, "context.db");
 export const MODELS_DIR = join(BASE_DIR, "models");
+export const SYNC_DIR = join(BASE_DIR, "sync");
+export const SYNC_STATE_PATH = join(BASE_DIR, "sync-state.json");
 
 export function ensureDirs(): void {
   mkdirSync(CONTEXT_DIR, { recursive: true, mode: 0o700 });
   mkdirSync(DB_DIR, { recursive: true, mode: 0o700 });
   mkdirSync(MODELS_DIR, { recursive: true, mode: 0o700 });
+  mkdirSync(SYNC_DIR, { recursive: true, mode: 0o700 });
 }
 
 export function dateToFilePath(date: string): string {
