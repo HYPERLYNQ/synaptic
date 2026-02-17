@@ -67,6 +67,7 @@ export async function initCommand(args: string[]): Promise<void> {
 
   if (!isGlobal) {
     setupGitHook(env);
+    setupCommitMsgHook(env);
     setupProjectDir();
   }
 
@@ -245,6 +246,39 @@ node --no-warnings ${preCommitPath}
   writeFileSync(hookPath, script, "utf-8");
   chmodSync(hookPath, 0o755);
   console.log("  [done] Git pre-commit hook installed.");
+}
+
+function setupCommitMsgHook(env: Environment): void {
+  const gitDir = join(process.cwd(), ".git");
+  if (!existsSync(gitDir)) {
+    console.log("  [skip] No .git/ directory found, skipping commit-msg hook.");
+    return;
+  }
+
+  const hooksDir = join(gitDir, "hooks");
+  const hookPath = join(hooksDir, "commit-msg");
+
+  if (existsSync(hookPath)) {
+    const existing = readFileSync(hookPath, "utf-8");
+    if (existing.includes("synaptic")) {
+      console.log("  [skip] Git commit-msg hook already contains synaptic.");
+      return;
+    }
+    console.log("  [skip] Existing commit-msg hook found (not synaptic), leaving untouched.");
+    return;
+  }
+
+  const commitMsgPath = join(env.buildDir, "src", "cli", "commit-msg.js");
+
+  const script = `#!/bin/sh
+# synaptic commit-msg hook
+node --no-warnings ${commitMsgPath} "$1"
+`;
+
+  mkdirSync(hooksDir, { recursive: true });
+  writeFileSync(hookPath, script, "utf-8");
+  chmodSync(hookPath, 0o755);
+  console.log("  [done] Git commit-msg hook installed.");
 }
 
 function setupProjectDir(): void {

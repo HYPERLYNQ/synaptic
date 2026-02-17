@@ -13,8 +13,8 @@
 
 **Claude forgets everything between sessions. Synaptic fixes that.**
 
-[![Version](https://img.shields.io/badge/version-0.7.2-blue)](https://github.com/HYPERLYNQ/synaptic)
-[![Tests](https://img.shields.io/badge/tests-164%20passing-brightgreen)](https://github.com/HYPERLYNQ/synaptic)
+[![Version](https://img.shields.io/badge/version-0.8.0-blue)](https://github.com/HYPERLYNQ/synaptic)
+[![Tests](https://img.shields.io/badge/tests-175%20passing-brightgreen)](https://github.com/HYPERLYNQ/synaptic)
 [![Node](https://img.shields.io/badge/node-22%2B-339933)](https://nodejs.org)
 [![License](https://img.shields.io/badge/license-source--available-orange)](LICENSE)
 
@@ -75,6 +75,7 @@ Claude's auto-memory (`~/.claude/memory/`) saves short notes to files. But there
 | Memory cleanup | Manual | Grows forever | Auto-decay by tier |
 | Pattern detection | None | None | Tracks recurring failures |
 | Auto-capture | None | None | Detects declarations, preferences, corrections |
+| Rule enforcement | None | None | Hard (commit-msg hook) + soft (violation detection) |
 | Transcript scanning | None | None | Passively captures from conversation history |
 | Predictive context | None | None | Surfaces relevant history at session start |
 
@@ -108,6 +109,7 @@ That's it. The `init` command auto-detects your environment (Linux, macOS, WSL) 
 - **MCP server** — so Claude can use Synaptic's tools
 - **3 lifecycle hooks** — auto-load on start, preserve on compress, save on stop
 - **Git pre-commit hook** — captures test/lint failures into memory
+- **Git commit-msg hook** — blocks commits that violate your rules
 - **Project directory** — `.synaptic/` for local config
 
 > Skip git hook and project dir with `npx synaptic init --global`
@@ -287,6 +289,23 @@ More examples: `"never auto-commit"` · `"use bun instead of npm"` · `"always w
 
 <br>
 
+### Rule Enforcement
+
+Rules aren't just suggestions — Synaptic enforces them at multiple levels:
+
+**Hard enforcement** — A `commit-msg` git hook extracts forbidden patterns from your rules (quoted strings, negative directives like "never add X") and blocks commits that contain violations. The commit is rejected with a clear error showing which rule was broken.
+
+**Soft enforcement** — The stop hook scans the conversation transcript for `git commit` tool calls and checks their messages against rules. Violations are saved as pinned issues.
+
+**Violation surfacing** — At session start, recent violations are shown as warnings above the rules section. Claude sees what it got wrong recently and is reminded to be extra careful.
+
+```
+⚠ RECENT RULE VIOLATIONS — you broke these rules recently, be extra careful:
+- Rule "no-co-author": commit message contained "Co-Authored-By" (today)
+```
+
+<br>
+
 ### Memory Tiers
 
 Not everything lasts forever. Synaptic manages it for you:
@@ -336,8 +355,8 @@ Three hooks handle the lifecycle automatically:
 ```
 ┌─────────────────────────────────────────────────────┐
 │                                                     │
-│   START ──→  Injects rules, predicted focus,        │
-│              recent context, last handoff            │
+│   START ──→  Injects rules, violation warnings,      │
+│              predicted focus, recent context          │
 │                                                     │
 │   WORK ───→  Claude saves and searches context      │
 │              Git watcher auto-indexes in background  │
@@ -345,8 +364,8 @@ Three hooks handle the lifecycle automatically:
 │   COMPRESS →  Preserves important context before     │
 │               conversation is compressed             │
 │                                                     │
-│   END ────→  Scans transcript, saves handoff,        │
-│              detects corrections & preferences        │
+│   END ────→  Scans transcript, checks rule violations, │
+│              saves handoff, detects corrections        │
 │                                                     │
 └─────────────────────────────────────────────────────┘
 ```
@@ -406,7 +425,7 @@ Interested in Synaptic for your team? **[Get in touch →](mailto:hyperlynq@gmai
 
 ```bash
 npm run build            # Compile TypeScript
-npm run smoke-test       # Build + run all 164 tests
+npm run smoke-test       # Build + run all 175 tests
 ```
 
 <br>

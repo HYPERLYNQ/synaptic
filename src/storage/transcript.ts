@@ -108,6 +108,69 @@ export function extractTextContent(content: unknown): string | null {
   return null;
 }
 
+export interface ToolUseAction {
+  tool: string;
+  input: Record<string, unknown>;
+}
+
+/**
+ * Read tool_use actions from a JSONL transcript file starting at a byte offset.
+ * Extracts tool_use blocks from assistant messages.
+ */
+export function readToolUseActions(
+  filePath: string,
+  byteOffset: number
+): { actions: ToolUseAction[]; newOffset: number } {
+  const actions: ToolUseAction[] = [];
+
+  let buf: Buffer;
+  try {
+    buf = readFileSync(filePath);
+  } catch {
+    return { actions, newOffset: byteOffset };
+  }
+
+  if (byteOffset >= buf.length) {
+    return { actions, newOffset: buf.length };
+  }
+
+  const chunk = buf.subarray(byteOffset).toString("utf-8");
+  const lines = chunk.split("\n");
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(trimmed);
+    } catch {
+      continue;
+    }
+
+    if (parsed.type !== "assistant") continue;
+
+    const message = parsed.message as Record<string, unknown> | undefined;
+    if (!message) continue;
+    const content = message.content;
+    if (!Array.isArray(content)) continue;
+
+    for (const block of content) {
+      if (typeof block === "object" && block !== null) {
+        const b = block as Record<string, unknown>;
+        if (b.type === "tool_use" && typeof b.name === "string") {
+          actions.push({
+            tool: b.name,
+            input: (b.input as Record<string, unknown>) ?? {},
+          });
+        }
+      }
+    }
+  }
+
+  return { actions, newOffset: buf.length };
+}
+
 /**
  * Read new messages from a JSONL transcript file starting at a byte offset.
  * Filters to user (string content only) and assistant (text blocks only).
