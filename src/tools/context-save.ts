@@ -6,12 +6,13 @@ import { getCurrentProject } from "../server.js";
 import { getSessionId } from "../storage/session.js";
 
 export const contextSaveSchema = {
-  content: z.string().describe("The context content to save"),
+  content: z.string().max(100_000).describe("The context content to save"),
   type: z
     .enum(["decision", "progress", "issue", "handoff", "insight", "reference", "git_commit", "rule"])
     .describe("Type of context entry"),
   tags: z
-    .array(z.string())
+    .array(z.string().max(100))
+    .max(20)
     .default([])
     .describe("Tags for categorization (e.g. project names, topics)"),
   tier: z
@@ -25,6 +26,8 @@ export const contextSaveSchema = {
     .describe("Pin entry to prevent auto-decay"),
   agent_id: z
     .string()
+    .max(100)
+    .regex(/^[a-zA-Z0-9_\-]+$/, "Invalid agent_id format")
     .optional()
     .describe("Optional agent identifier (defaults to 'main')"),
 };

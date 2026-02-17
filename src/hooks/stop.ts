@@ -9,7 +9,7 @@
  * Receives JSON on stdin: { stop_hook_active: boolean, ... }
  */
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { appendEntry } from "../storage/markdown.js";
 import { ContextIndex } from "../storage/sqlite.js";
@@ -34,10 +34,9 @@ interface StopInput {
 }
 
 function shouldDebounce(): boolean {
-  if (!existsSync(DEBOUNCE_FILE)) return false;
   try {
     const last = parseInt(readFileSync(DEBOUNCE_FILE, "utf-8").trim(), 10);
-    return Date.now() - last < DEBOUNCE_MS;
+    return !isNaN(last) && Date.now() - last < DEBOUNCE_MS;
   } catch {
     return false;
   }
@@ -135,7 +134,9 @@ function checkRuleViolations(
     if (!command.includes("git commit")) continue;
 
     // Extract the -m message
-    const msgMatch = command.match(/git\s+commit\s+.*?-m\s+(?:"([^"]*(?:\\.[^"]*)*)"|'([^']*)'|(\S+))/);
+    // Guard against catastrophic backtracking on very long commands
+    const cmdSlice = command.slice(0, 2000);
+    const msgMatch = cmdSlice.match(/git\s+commit\s[^"']*-m\s+(?:"([^"]*)"|'([^']*)'|(\S+))/);
     if (!msgMatch) continue;
     const commitMsg = msgMatch[1] ?? msgMatch[2] ?? msgMatch[3] ?? "";
 

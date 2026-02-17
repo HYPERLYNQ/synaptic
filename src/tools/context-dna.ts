@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { resolve } from "node:path";
+import { realpathSync } from "node:fs";
 import { ContextIndex } from "../storage/sqlite.js";
 import { Embedder } from "../storage/embedder.js";
 import { appendEntry } from "../storage/markdown.js";
@@ -33,11 +35,25 @@ export async function contextDna(
   index: ContextIndex,
   embedder: Embedder
 ): Promise<DnaResult> {
-  const repoPath = args.repo_path ?? process.cwd();
+  const repoPath = args.repo_path ? resolve(args.repo_path) : process.cwd();
   const maxCommits = args.commits ?? 100;
 
+  // Prevent path traversal — repo_path must be within cwd (resolve symlinks)
+  if (args.repo_path) {
+    try {
+      const cwdReal = realpathSync(process.cwd());
+      const repoReal = realpathSync(repoPath);
+      if (!repoReal.startsWith(cwdReal + "/") && repoReal !== cwdReal) {
+        throw new Error("repo_path must be within the current working directory");
+      }
+    } catch (e) {
+      if (e instanceof Error && e.message.includes("repo_path")) throw e;
+      throw new Error("repo_path must be a valid, accessible directory");
+    }
+  }
+
   if (!isGitRepo(repoPath)) {
-    return { success: false, message: "Not a git repository: " + repoPath };
+    return { success: false, message: "Not a git repository" };
   }
 
   // 1. Fetch git commits

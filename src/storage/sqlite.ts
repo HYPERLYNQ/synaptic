@@ -1,4 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
+import { randomBytes } from "node:crypto";
 import * as sqliteVec from "sqlite-vec";
 import { DB_PATH, ensureDirs } from "./paths.js";
 import type { ContextEntry } from "./markdown.js";
@@ -17,7 +18,12 @@ export class ContextIndex {
   private db: DatabaseSync;
 
   static assignTier(type: string, explicitTier?: string): "ephemeral" | "working" | "longterm" {
-    if (explicitTier) return explicitTier as "ephemeral" | "working" | "longterm";
+    if (explicitTier) {
+      if (explicitTier !== "ephemeral" && explicitTier !== "working" && explicitTier !== "longterm") {
+        throw new Error("Invalid tier: must be ephemeral, working, or longterm");
+      }
+      return explicitTier;
+    }
     switch (type) {
       case "handoff":
       case "progress":
@@ -195,6 +201,16 @@ export class ContextIndex {
     stmt.run(entryRowid, new Uint8Array(embedding.buffer));
   }
 
+  /** Sanitize user input for FTS5 MATCH — strip operators, wrap terms in quotes. */
+  private sanitizeFts5Query(query: string): string {
+    // Remove FTS5 special characters: {} () * ^ " column-filter colons
+    const cleaned = query.replace(/[{}()*^"\\:]/g, " ");
+    // Split into terms and wrap each in double quotes to force literal matching
+    const terms = cleaned.split(/\s+/).filter(Boolean);
+    if (terms.length === 0) return '""'; // empty match
+    return terms.map(t => `"${t}"`).join(" ");
+  }
+
   search(
     query: string,
     opts: { type?: string; days?: number; limit?: number; includeArchived?: boolean } = {}
@@ -204,7 +220,7 @@ export class ContextIndex {
     const params: (string | number)[] = [];
 
     conditions.push("entries_fts MATCH ?");
-    params.push(query);
+    params.push(this.sanitizeFts5Query(query));
 
     if (opts.type) {
       conditions.push("e.type = ?");
@@ -325,11 +341,15 @@ export class ContextIndex {
 
     const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
 
+    const maxRows = 1000;
+    params.push(maxRows);
+
     const sql = `
       SELECT id, date, time, type, tags, content, source_file, tier, access_count, last_accessed, pinned, archived, project, session_id, agent_id
       FROM entries
       ${where}
       ORDER BY date DESC, time DESC
+      LIMIT ?
     `;
 
     const stmt = this.db.prepare(sql);
@@ -680,10 +700,15 @@ export class ContextIndex {
     return groups;
   }
 
+  /** Escape LIKE wildcards to prevent pattern injection. */
+  private escapeLike(str: string): string {
+    return str.replace(/[%_\\]/g, "\\$&");
+  }
+
   hasEntryWithTag(tag: string): boolean {
     const row = this.db.prepare(
-      "SELECT 1 FROM entries WHERE tags LIKE ? LIMIT 1"
-    ).get(`%${tag}%`);
+      "SELECT 1 FROM entries WHERE tags LIKE ? ESCAPE '\\' LIMIT 1"
+    ).get(`%${this.escapeLike(tag)}%`);
     return !!row;
   }
 
@@ -691,10 +716,11 @@ export class ContextIndex {
     const sql = `
       SELECT id, date, time, type, tags, content, source_file, tier, access_count, last_accessed, pinned, archived, project, session_id, agent_id
       FROM entries
-      WHERE tags LIKE ? AND archived = 0
+      WHERE tags LIKE ? ESCAPE '\\' AND archived = 0
       ORDER BY date ASC, time ASC
+      LIMIT 1000
     `;
-    const rows = this.db.prepare(sql).all(`%${tag}%`) as Record<string, unknown>[];
+    const rows = this.db.prepare(sql).all(`%${this.escapeLike(tag)}%`) as Record<string, unknown>[];
     return rows.map((row) => ({
       id: row.id as string,
       date: row.date as string,
@@ -741,7 +767,13 @@ export class ContextIndex {
 
     const entryIdSet = new Set(entryIds);
     for (const pat of patterns) {
-      const existing = JSON.parse(pat.entry_ids) as string[];
+      let existing: string[];
+      try {
+        const parsed = JSON.parse(pat.entry_ids);
+        existing = Array.isArray(parsed) ? parsed : [];
+      } catch {
+        existing = [];
+      }
       const overlap = existing.some(id => entryIdSet.has(id));
       if (overlap) {
         // Merge into existing pattern
@@ -756,7 +788,7 @@ export class ContextIndex {
     }
 
     // Create new pattern
-    const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    const id = Date.now().toString(36) + randomBytes(4).toString("hex").slice(0, 6);
     const now = new Date().toISOString().slice(0, 10);
     this.db.prepare(`
       INSERT INTO patterns (id, label, entry_ids, occurrence_count, first_seen, last_seen)
@@ -776,14 +808,23 @@ export class ContextIndex {
     const rows = this.db.prepare(
       "SELECT * FROM patterns WHERE resolved = 0 AND occurrence_count >= 3 ORDER BY last_seen DESC"
     ).all() as Array<Record<string, unknown>>;
-    return rows.map(r => ({
-      id: r.id as string,
-      label: r.label as string,
-      entryIds: JSON.parse(r.entry_ids as string) as string[],
-      occurrenceCount: r.occurrence_count as number,
-      firstSeen: r.first_seen as string,
-      lastSeen: r.last_seen as string,
-    }));
+    return rows.map(r => {
+      let entryIds: string[];
+      try {
+        const parsed = JSON.parse(r.entry_ids as string);
+        entryIds = Array.isArray(parsed) ? parsed : [];
+      } catch {
+        entryIds = [];
+      }
+      return {
+        id: r.id as string,
+        label: r.label as string,
+        entryIds,
+        occurrenceCount: r.occurrence_count as number,
+        firstSeen: r.first_seen as string,
+        lastSeen: r.last_seen as string,
+      };
+    });
   }
 
   getPatternForEntry(entryId: string): { id: string; occurrenceCount: number } | null {
@@ -791,7 +832,13 @@ export class ContextIndex {
       "SELECT id, occurrence_count, entry_ids FROM patterns WHERE resolved = 0"
     ).all() as Array<{ id: string; occurrence_count: number; entry_ids: string }>;
     for (const row of rows) {
-      const ids = JSON.parse(row.entry_ids) as string[];
+      let ids: string[];
+      try {
+        const parsed = JSON.parse(row.entry_ids);
+        ids = Array.isArray(parsed) ? parsed : [];
+      } catch {
+        ids = [];
+      }
       if (ids.includes(entryId)) {
         return { id: row.id, occurrenceCount: row.occurrence_count };
       }
@@ -810,7 +857,7 @@ export class ContextIndex {
     const now = new Date();
     const date = now.toISOString().slice(0, 10);
     const time = now.toTimeString().slice(0, 5);
-    const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    const id = Date.now().toString(36) + randomBytes(4).toString("hex").slice(0, 6);
 
     // Upsert: clean up old rule with same label (manually sync FTS to avoid trigger issue)
     const existing = this.db.prepare(
@@ -923,12 +970,16 @@ export class ContextIndex {
       params.push(opts.type);
     }
 
+    const maxRows = 1000;
+    params.push(maxRows);
+
     const sql = `
       SELECT id, date, time, type, tags, content, source_file, tier, access_count,
              last_accessed, pinned, archived, project, session_id, agent_id
       FROM entries
       WHERE ${conditions.join(" AND ")}
       ORDER BY date ASC, time ASC
+      LIMIT ?
     `;
 
     const rows = this.db.prepare(sql).all(...params) as Record<string, unknown>[];

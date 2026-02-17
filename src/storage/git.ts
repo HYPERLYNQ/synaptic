@@ -1,4 +1,4 @@
-import { execFileSync, execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
@@ -17,7 +17,7 @@ export function isGitRepo(dir: string): boolean {
 
 export function getCurrentBranch(repoPath: string): string {
   try {
-    return execSync("git rev-parse --abbrev-ref HEAD", {
+    return execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
       cwd: repoPath,
       encoding: "utf-8",
     }).trim();
@@ -30,10 +30,17 @@ export function getGitLog(
   repoPath: string,
   opts: { days?: number; branch?: string } = {}
 ): GitCommit[] {
-  const days = opts.days ?? 7;
+  const days = Math.max(1, Math.floor(opts.days ?? 7));
+  if (!Number.isInteger(days) || days < 1 || days > 3650) {
+    throw new Error("Invalid days parameter: must be an integer between 1 and 3650");
+  }
+
   const branch = opts.branch ?? getCurrentBranch(repoPath);
+  if (!/^[a-zA-Z0-9._\-\/]+$/.test(branch) || branch.length > 200) {
+    throw new Error("Invalid branch name");
+  }
+
   try {
-    // Get commits with stats (execFileSync to avoid shell injection via branch name)
     const raw = execFileSync("git", [
       "log", branch, `--since=${days} days ago`,
       "--format=COMMIT_SEP%n%H%n%s%n%an%n%aI", "--numstat",
@@ -78,7 +85,7 @@ export function getRecentlyChangedFiles(repoPath: string): string[] {
   const files = new Set<string>();
   try {
     // Last 3 commits
-    const committed = execSync("git diff --name-only HEAD~3", {
+    const committed = execFileSync("git", ["diff", "--name-only", "HEAD~3"], {
       cwd: repoPath,
       encoding: "utf-8",
       timeout: 3000,
@@ -89,7 +96,7 @@ export function getRecentlyChangedFiles(repoPath: string): string[] {
   }
   try {
     // Uncommitted changes
-    const uncommitted = execSync("git diff --name-only", {
+    const uncommitted = execFileSync("git", ["diff", "--name-only"], {
       cwd: repoPath,
       encoding: "utf-8",
       timeout: 3000,

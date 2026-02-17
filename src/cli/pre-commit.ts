@@ -7,7 +7,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { execSync } from "node:child_process";
+import { execSync, execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { ContextIndex } from "../storage/sqlite.js";
 import { Embedder } from "../storage/embedder.js";
@@ -51,7 +51,7 @@ function detectScripts(cwd: string): Array<{ script: string; label: string }> {
 
 function getStagedFiles(): string[] {
   try {
-    const output = execSync("git diff --cached --name-only", {
+    const output = execFileSync("git", ["diff", "--cached", "--name-only"], {
       encoding: "utf-8",
       timeout: 5000,
     }).trim();
@@ -63,11 +63,12 @@ function getStagedFiles(): string[] {
 
 function runCheck(script: string, label: string, cwd: string): CheckResult {
   try {
-    const output = execSync(`npm run ${script} 2>&1`, {
+    const output = execFileSync("npm", ["run", script], {
       cwd,
       encoding: "utf-8",
       timeout: 120000,
       maxBuffer: 5 * 1024 * 1024,
+      stdio: ["pipe", "pipe", "pipe"],
     });
     return { command: `npm run ${script}`, label, success: true, output: output.slice(-2000) };
   } catch (err) {

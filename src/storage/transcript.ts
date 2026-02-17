@@ -4,10 +4,13 @@
  * No embedder/database dependencies — pure file I/O.
  */
 
-import { existsSync, readFileSync, writeFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, readdirSync, statSync, openSync, readSync, fstatSync, closeSync } from "node:fs";
 import { join, sep } from "node:path";
 import { homedir } from "node:os";
 import { DB_DIR } from "./paths.js";
+
+/** Max transcript bytes to read at once (10 MB). Prevents OOM on huge sessions. */
+const MAX_TRANSCRIPT_BYTES = 10 * 1024 * 1024;
 
 const CURSOR_FILE = join(DB_DIR, ".transcript-cursor");
 
@@ -124,17 +127,26 @@ export function readToolUseActions(
   const actions: ToolUseAction[] = [];
 
   let buf: Buffer;
+  let fileSize: number;
   try {
-    buf = readFileSync(filePath);
+    const fd = openSync(filePath, "r");
+    try {
+      fileSize = fstatSync(fd).size;
+      if (byteOffset >= fileSize) {
+        return { actions, newOffset: fileSize };
+      }
+      const readLength = Math.min(fileSize - byteOffset, MAX_TRANSCRIPT_BYTES);
+      buf = Buffer.alloc(readLength);
+      readSync(fd, buf, 0, readLength, byteOffset);
+    } finally {
+      closeSync(fd);
+    }
   } catch {
     return { actions, newOffset: byteOffset };
   }
 
-  if (byteOffset >= buf.length) {
-    return { actions, newOffset: buf.length };
-  }
-
-  const chunk = buf.subarray(byteOffset).toString("utf-8");
+  const chunk = buf.toString("utf-8");
+  const newOffset = Math.min(byteOffset + buf.length, fileSize);
   const lines = chunk.split("\n");
 
   for (const line of lines) {
@@ -168,7 +180,7 @@ export function readToolUseActions(
     }
   }
 
-  return { actions, newOffset: buf.length };
+  return { actions, newOffset };
 }
 
 /**
@@ -183,17 +195,26 @@ export function readNewMessages(
   const messages: TranscriptMessage[] = [];
 
   let buf: Buffer;
+  let fileSize: number;
   try {
-    buf = readFileSync(filePath);
+    const fd = openSync(filePath, "r");
+    try {
+      fileSize = fstatSync(fd).size;
+      if (byteOffset >= fileSize) {
+        return { messages, newOffset: fileSize };
+      }
+      const readLength = Math.min(fileSize - byteOffset, MAX_TRANSCRIPT_BYTES);
+      buf = Buffer.alloc(readLength);
+      readSync(fd, buf, 0, readLength, byteOffset);
+    } finally {
+      closeSync(fd);
+    }
   } catch {
     return { messages, newOffset: byteOffset };
   }
 
-  if (byteOffset >= buf.length) {
-    return { messages, newOffset: buf.length };
-  }
-
-  const chunk = buf.subarray(byteOffset).toString("utf-8");
+  const chunk = buf.toString("utf-8");
+  const newOffset = Math.min(byteOffset + buf.length, fileSize);
   const lines = chunk.split("\n");
 
   for (const line of lines) {
@@ -229,5 +250,5 @@ export function readNewMessages(
     }
   }
 
-  return { messages, newOffset: buf.length };
+  return { messages, newOffset };
 }

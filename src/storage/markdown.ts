@@ -1,4 +1,5 @@
 import { readFileSync, writeFileSync, existsSync, readdirSync } from "node:fs";
+import { randomBytes } from "node:crypto";
 import { dateToFilePath, CONTEXT_DIR } from "./paths.js";
 
 export interface ContextEntry {
@@ -20,7 +21,7 @@ export interface ContextEntry {
 }
 
 function generateId(): string {
-  return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  return Date.now().toString(36) + randomBytes(4).toString("hex").slice(0, 6);
 }
 
 function formatTime(): string {
