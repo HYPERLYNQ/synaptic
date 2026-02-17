@@ -6,7 +6,7 @@
  * Usage: npm run smoke-test
  */
 
-import { unlinkSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { unlinkSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { dirname, join } from "node:path";
 import { ContextIndex } from "../src/storage/sqlite.js";
@@ -14,6 +14,14 @@ import { Embedder } from "../src/storage/embedder.js";
 import { getGitLog, formatCommitAsContent } from "../src/storage/git.js";
 import { detectProject, resetProjectCache } from "../src/storage/project.js";
 import { runMaintenance } from "../src/storage/maintenance.js";
+import {
+  findClaudeProjectDir,
+  findCurrentTranscript,
+  extractTextContent,
+  readCursor,
+  writeCursor,
+  readNewMessages,
+} from "../src/storage/transcript.js";
 import type { ContextEntry } from "../src/storage/markdown.js";
 
 const DB_PATH = "/tmp/claude/synaptic-smoke-test.db";
@@ -762,13 +770,14 @@ async function main(): Promise<void> {
   console.log("\n[27] v0.7.0 integration");
 
   const pkgFinal = JSON.parse(readFileSync(join(PROJECT_DIR, "package.json"), "utf-8"));
-  assert(pkgFinal.version === "0.7.0", `Version is 0.7.0 (got ${pkgFinal.version})`);
+  assert(pkgFinal.version === "0.7.1", `Version is 0.7.1 (got ${pkgFinal.version})`);
   assert(pkgFinal.bin?.synaptic === "build/src/cli.js", "bin field points to CLI");
 
   assert(existsSync(join(PROJECT_DIR, "build", "src", "cli.js")), "CLI entry point built");
   assert(existsSync(join(PROJECT_DIR, "build", "src", "cli", "init.js")), "Init command built");
   assert(existsSync(join(PROJECT_DIR, "build", "src", "cli", "pre-commit.js")), "Pre-commit script built");
   assert(existsSync(join(PROJECT_DIR, "build", "src", "storage", "watcher.js")), "Watcher module built");
+  assert(existsSync(join(PROJECT_DIR, "build", "src", "storage", "transcript.js")), "Transcript module built");
   assert(existsSync(join(PROJECT_DIR, "build", "src", "tools", "context-dna.js")), "DNA tool built");
   assert(existsSync(join(PROJECT_DIR, "build", "src", "tools", "context-chain.js")), "Chain tool built");
 
@@ -879,6 +888,81 @@ async function main(): Promise<void> {
   const allAfter = index.list({ includeArchived: true });
   const archived = allAfter.filter(e => consolidationIds.includes(e.id) && e.archived);
   assert(archived.length === 2, `2 entries archived (got ${archived.length})`);
+
+  // -------------------------------------------------------
+  // 31. Transcript scanning
+  // -------------------------------------------------------
+  console.log("\n[31] Transcript scanning");
+
+  // 31a. findClaudeProjectDir returns correct path for known cwd
+  const claudeDir = findClaudeProjectDir("/home/hyperlynq/projects/Coding");
+  assert(
+    claudeDir !== null && claudeDir.includes("-home-hyperlynq-projects-Coding"),
+    `findClaudeProjectDir returns correct path (got ${claudeDir})`
+  );
+
+  // 31b. findClaudeProjectDir returns null for non-existent path
+  const noDir = findClaudeProjectDir("/nonexistent/path/nowhere");
+  assert(noDir === null, `findClaudeProjectDir returns null for missing dir`);
+
+  // 31c. findCurrentTranscript finds a JSONL file
+  const transcript = findCurrentTranscript("/home/hyperlynq/projects/Coding");
+  assert(
+    transcript !== null && transcript.endsWith(".jsonl"),
+    `findCurrentTranscript finds JSONL file (got ${transcript})`
+  );
+
+  // 31d. extractTextContent handles strings
+  const strResult = extractTextContent("Hello world");
+  assert(strResult === "Hello world", `extractTextContent handles string (got "${strResult}")`);
+
+  // 31e. extractTextContent handles arrays with text blocks
+  const arrResult = extractTextContent([
+    { type: "text", text: "First part" },
+    { type: "thinking", thinking: "hidden" },
+    { type: "text", text: "Second part" },
+    { type: "tool_use", name: "Read", input: {} },
+  ]);
+  assert(
+    arrResult === "First part\nSecond part",
+    `extractTextContent handles arrays (got "${arrResult}")`
+  );
+
+  // 31f. extractTextContent handles tool_result arrays (should return null)
+  const toolResult = extractTextContent([
+    { type: "tool_result", tool_use_id: "123", content: "result" },
+  ]);
+  assert(toolResult === null, `extractTextContent returns null for tool_result arrays`);
+
+  // 31g. extractTextContent handles empty/whitespace
+  assert(extractTextContent("") === null, `extractTextContent returns null for empty string`);
+  assert(extractTextContent("   ") === null, `extractTextContent returns null for whitespace`);
+
+  // 31h. Cursor read/write round-trip
+  const testCursor = { file: "/tmp/test-transcript.jsonl", offset: 12345 };
+  writeCursor(testCursor);
+  const readBack = readCursor();
+  assert(
+    readBack !== null && readBack.file === testCursor.file && readBack.offset === testCursor.offset,
+    `Cursor round-trip works (got ${JSON.stringify(readBack)})`
+  );
+
+  // 31i. readNewMessages returns filtered messages from real transcript
+  if (transcript) {
+    const { messages: transcriptMsgs, newOffset: tOffset } = readNewMessages(transcript, 0);
+    assert(tOffset > 0, `readNewMessages advances offset (got ${tOffset})`);
+    assert(
+      transcriptMsgs.length >= 0,
+      `readNewMessages returns messages array (got ${transcriptMsgs.length})`
+    );
+    // All returned messages should have role and text
+    for (const msg of transcriptMsgs.slice(0, 5)) {
+      assert(
+        (msg.role === "user" || msg.role === "assistant") && msg.text.length >= 20,
+        `Message has valid role="${msg.role}" and text length ${msg.text.length}`
+      );
+    }
+  }
 
   // -------------------------------------------------------
   // Summary
