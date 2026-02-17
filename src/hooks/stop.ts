@@ -1,6 +1,10 @@
 /**
- * Stop hook: Saves debounced handoff notes when Claude finishes responding.
- * Only saves if 5+ minutes have passed since the last handoff note.
+ * Stop hook: Scans transcripts and saves debounced handoff notes.
+ *
+ * Flow: stdin → stop_hook_active? → create index/embedder → TRANSCRIPT SCAN → debounce? → handoff
+ *
+ * Transcript scanning runs on every response (no debounce).
+ * Handoff generation is debounced to 5-minute intervals.
  *
  * Receives JSON on stdin: { stop_hook_active: boolean, ... }
  */
@@ -13,6 +17,12 @@ import { Embedder } from "../storage/embedder.js";
 import { ensureDirs, DB_DIR } from "../storage/paths.js";
 import { detectProject } from "../storage/project.js";
 import { getSessionId } from "../storage/session.js";
+import {
+  findCurrentTranscript,
+  readCursor,
+  writeCursor,
+  readNewMessages,
+} from "../storage/transcript.js";
 
 const DEBOUNCE_FILE = join(DB_DIR, ".last-handoff");
 const DEBOUNCE_MS = 5 * 60 * 1000; // 5 minutes
@@ -33,6 +43,69 @@ function shouldDebounce(): boolean {
 
 function updateDebounceTimestamp(): void {
   writeFileSync(DEBOUNCE_FILE, Date.now().toString(), "utf-8");
+}
+
+async function scanTranscript(
+  index: ContextIndex,
+  embedder: Embedder,
+  enrichInsert: (entry: import("../storage/markdown.js").ContextEntry) => number
+): Promise<void> {
+  // 1. Find current transcript file
+  const transcriptFile = findCurrentTranscript();
+  if (!transcriptFile) return;
+
+  // 2. Read cursor, compute offset (reset to 0 if file changed)
+  const cursor = readCursor();
+  const offset = (cursor && cursor.file === transcriptFile) ? cursor.offset : 0;
+
+  // 3. Read new messages (cap at 10 per scan)
+  const { messages, newOffset } = readNewMessages(transcriptFile, offset);
+  const capped = messages.slice(0, 10);
+
+  if (capped.length === 0) {
+    // Still update cursor to track position even if no qualifying messages
+    writeCursor({ file: transcriptFile, offset: newOffset });
+    return;
+  }
+
+  // Pre-load templates
+  const intentTemplates = await embedder.getIntentTemplates();
+  const categoryTemplates = await embedder.getCategoryTemplates();
+
+  for (const msg of capped) {
+    let matchResult: { category: string; similarity: number } | null = null;
+
+    if (msg.role === "user") {
+      // 4. Classify user messages with intent templates (threshold 0.3)
+      matchResult = await embedder.classifySentence(msg.text, intentTemplates, 0.3);
+    } else {
+      // 5. Classify assistant text with category templates (threshold 0.7)
+      matchResult = await embedder.classifySentence(msg.text, categoryTemplates, 0.7);
+    }
+
+    if (!matchResult) continue;
+
+    // 6. Deduplicate via searchVec — skip if L2 distance < 0.55 (≈ cosine 0.85)
+    const msgEmb = await embedder.embed(msg.text);
+    const similar = index.searchVec(msgEmb, 1);
+    if (similar.length > 0 && similar[0].distance < 0.55) {
+      continue; // too similar to existing entry
+    }
+
+    // 7. Save as insight with transcript-scan tags
+    const tags = [
+      "transcript-scan",
+      `source:${msg.role}`,
+      `intent:${matchResult.category}`,
+    ];
+    const entry = appendEntry(msg.text, "insight", tags);
+    entry.tier = "working";
+    const rowid = enrichInsert(entry);
+    index.insertVec(rowid, msgEmb);
+  }
+
+  // 8. Update cursor
+  writeCursor({ file: transcriptFile, offset: newOffset });
 }
 
 async function main(): Promise<void> {
@@ -57,11 +130,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  // Debounce: skip if a handoff was saved recently
-  if (shouldDebounce()) {
-    return;
-  }
-
+  // Create index/embedder BEFORE debounce — transcript scan needs them
   const index = new ContextIndex();
   const embedder = new Embedder();
 
@@ -75,6 +144,18 @@ async function main(): Promise<void> {
   };
 
   try {
+    // Transcript scan runs on EVERY response (no debounce)
+    try {
+      await scanTranscript(index, embedder, enrichInsert);
+    } catch {
+      // Don't fail the hook if transcript scanning errors
+    }
+
+    // Debounce: skip handoff if one was saved recently
+    if (shouldDebounce()) {
+      return;
+    }
+
     // Check if there's been meaningful activity today
     const todayEntries = index.list({ days: 1 });
     if (todayEntries.length === 0) {
