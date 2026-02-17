@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { resolve } from "node:path";
+import { realpathSync } from "node:fs";
 import { ContextIndex } from "../storage/sqlite.js";
 import { Embedder } from "../storage/embedder.js";
 import { appendEntry } from "../storage/markdown.js";
@@ -14,10 +16,13 @@ export const contextGitIndexSchema = {
     .number()
     .int()
     .positive()
+    .max(365)
     .default(7)
     .describe("Index commits from last N days"),
   branch: z
     .string()
+    .regex(/^[a-zA-Z0-9._\-\/]+$/, "Invalid branch name characters")
+    .max(200)
     .optional()
     .describe("Branch to index (defaults to current branch)"),
 };
@@ -27,10 +32,24 @@ export async function contextGitIndex(
   index: ContextIndex,
   embedder: Embedder
 ): Promise<{ indexed: number; skipped: number; repo: string }> {
-  const repoPath = args.repo_path ?? process.cwd();
+  const repoPath = args.repo_path ? resolve(args.repo_path) : process.cwd();
+
+  // Prevent path traversal — repo_path must be within cwd (resolve symlinks)
+  if (args.repo_path) {
+    try {
+      const cwdReal = realpathSync(process.cwd());
+      const repoReal = realpathSync(repoPath);
+      if (!repoReal.startsWith(cwdReal + "/") && repoReal !== cwdReal) {
+        throw new Error("repo_path must be within the current working directory");
+      }
+    } catch (e) {
+      if (e instanceof Error && e.message.includes("repo_path")) throw e;
+      throw new Error("repo_path must be a valid, accessible directory");
+    }
+  }
 
   if (!isGitRepo(repoPath)) {
-    return { indexed: 0, skipped: 0, repo: repoPath };
+    return { indexed: 0, skipped: 0, repo: "." };
   }
 
   const commits = getGitLog(repoPath, { days: args.days, branch: args.branch });

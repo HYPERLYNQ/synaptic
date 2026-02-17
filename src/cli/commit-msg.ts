@@ -9,6 +9,7 @@
  */
 
 import { readFileSync } from "node:fs";
+import { resolve, join } from "node:path";
 import { ContextIndex } from "../storage/sqlite.js";
 import { ensureDirs } from "../storage/paths.js";
 import { extractCheckPatterns, checkMessageAgainstPatterns } from "./rule-patterns.js";
@@ -20,9 +21,16 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
+  // Validate the file path is within .git/ to prevent arbitrary file reads
+  const resolvedPath = resolve(commitMsgFile);
+  const gitDir = join(process.cwd(), ".git");
+  if (!resolvedPath.startsWith(gitDir)) {
+    process.exit(0);
+  }
+
   let message: string;
   try {
-    message = readFileSync(commitMsgFile, "utf-8");
+    message = readFileSync(resolvedPath, "utf-8");
   } catch {
     // Can't read message file — don't block
     process.exit(0);

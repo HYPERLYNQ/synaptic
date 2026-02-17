@@ -2,8 +2,8 @@ import { z } from "zod";
 import { ContextIndex } from "../storage/sqlite.js";
 
 export const contextSaveRuleSchema = {
-  label: z.string().describe("Unique short key for the rule (e.g. 'no-emoji', 'commit-style')"),
-  content: z.string().describe("The rule text — what Claude must always follow"),
+  label: z.string().max(200).describe("Unique short key for the rule (e.g. 'no-emoji', 'commit-style')"),
+  content: z.string().max(10_000).describe("The rule text — what Claude must always follow"),
 };
 
 export function contextSaveRule(

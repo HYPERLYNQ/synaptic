@@ -239,7 +239,7 @@ function setupGitHook(env: Environment): void {
 
   const script = `#!/bin/sh
 # synaptic pre-commit hook
-node --no-warnings ${preCommitPath}
+node --no-warnings "${preCommitPath}"
 `;
 
   mkdirSync(hooksDir, { recursive: true });
@@ -272,7 +272,7 @@ function setupCommitMsgHook(env: Environment): void {
 
   const script = `#!/bin/sh
 # synaptic commit-msg hook
-node --no-warnings ${commitMsgPath} "$1"
+node --no-warnings "${commitMsgPath}" "$1"
 `;
 
   mkdirSync(hooksDir, { recursive: true });

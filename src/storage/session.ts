@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { randomBytes } from "node:crypto";
 
 let cachedSessionId: string | null = null;
 
@@ -12,8 +12,7 @@ export function getSessionId(): string {
     return cachedSessionId;
   }
 
-  // Fallback: hash of pid + ppid + start time
-  const raw = `${process.pid}-${process.ppid}-${Date.now()}`;
-  cachedSessionId = createHash("sha256").update(raw).digest("hex").slice(0, 12);
+  // Fallback: cryptographically random session ID
+  cachedSessionId = randomBytes(8).toString("hex");
   return cachedSessionId;
 }
