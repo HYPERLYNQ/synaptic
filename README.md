@@ -13,8 +13,8 @@
 
 **Claude forgets everything between sessions. Synaptic fixes that.**
 
-[![Version](https://img.shields.io/badge/version-0.7.0-blue)](https://github.com/HYPERLYNQ/synaptic)
-[![Tests](https://img.shields.io/badge/tests-147%20passing-brightgreen)](https://github.com/HYPERLYNQ/synaptic)
+[![Version](https://img.shields.io/badge/version-0.7.1-blue)](https://github.com/HYPERLYNQ/synaptic)
+[![Tests](https://img.shields.io/badge/tests-164%20passing-brightgreen)](https://github.com/HYPERLYNQ/synaptic)
 [![Node](https://img.shields.io/badge/node-22%2B-339933)](https://nodejs.org)
 [![License](https://img.shields.io/badge/license-source--available-orange)](LICENSE)
 
@@ -75,6 +75,7 @@ Claude's auto-memory (`~/.claude/memory/`) saves short notes to files. But there
 | Memory cleanup | Manual | Grows forever | Auto-decay by tier |
 | Pattern detection | None | None | Tracks recurring failures |
 | Auto-capture | None | None | Detects declarations, preferences, corrections |
+| Transcript scanning | None | None | Passively captures from conversation history |
 | Predictive context | None | None | Surfaces relevant history at session start |
 
 <br>
@@ -310,6 +311,8 @@ Synaptic doesn't just store what Claude explicitly saves — it **captures what 
 
 **Consolidation Engine** — Duplicate entries about the same topic are automatically merged during maintenance. The highest-access entry survives with merged tags; the rest are archived. Keeps your memory clean without losing information.
 
+**Transcript Scanning** — On every Claude response, Synaptic incrementally scans the JSONL conversation transcript. User messages are classified for intent (declarations, preferences, frustrations) and assistant messages for insight categories (decisions, solutions, discoveries). Matching content is auto-saved as working-tier insights — no explicit `context_save` needed. Deduplication via vector similarity prevents redundant entries.
+
 **Handoff Access Bumps** — Entries important enough to appear in session handoffs get their access counts incremented, making them survive longer in the decay system. Important memories are self-reinforcing.
 
 <br>
@@ -342,8 +345,8 @@ Three hooks handle the lifecycle automatically:
 │   COMPRESS →  Preserves important context before     │
 │               conversation is compressed             │
 │                                                     │
-│   END ────→  Saves handoff, detects corrections,    │
-│              auto-captures declarations/preferences  │
+│   END ────→  Scans transcript, saves handoff,        │
+│              detects corrections & preferences        │
 │                                                     │
 └─────────────────────────────────────────────────────┘
 ```
@@ -403,7 +406,7 @@ Interested in Synaptic for your team? **[Get in touch →](mailto:hyperlynq@gmai
 
 ```bash
 npm run build            # Compile TypeScript
-npm run smoke-test       # Build + run all 147 tests
+npm run smoke-test       # Build + run all 164 tests
 ```
 
 <br>
