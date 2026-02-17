@@ -21,7 +21,9 @@ import {
   readCursor,
   writeCursor,
   readNewMessages,
+  readToolUseActions,
 } from "../src/storage/transcript.js";
+import { extractCheckPatterns, checkMessageAgainstPatterns } from "../src/cli/rule-patterns.js";
 import type { ContextEntry } from "../src/storage/markdown.js";
 
 const DB_PATH = "/tmp/claude/synaptic-smoke-test.db";
@@ -963,6 +965,88 @@ async function main(): Promise<void> {
       );
     }
   }
+
+  // -------------------------------------------------------
+  // 32. Rule enforcement utilities
+  // -------------------------------------------------------
+  console.log("\n[32] Rule enforcement utilities");
+
+  // 32a. extractCheckPatterns: negative rule with quoted string
+  const patterns1 = extractCheckPatterns('Never add "Co-Authored-By" lines to commits');
+  assert(
+    patterns1.some(p => p === "Co-Authored-By"),
+    `extractCheckPatterns extracts quoted string "Co-Authored-By" (got ${JSON.stringify(patterns1)})`
+  );
+
+  // 32b. extractCheckPatterns: negative rule with don't + quoted
+  const patterns2 = extractCheckPatterns(`Don't use "var" in JavaScript`);
+  assert(
+    patterns2.some(p => p === "var"),
+    `extractCheckPatterns extracts "var" from don't rule (got ${JSON.stringify(patterns2)})`
+  );
+
+  // 32c. extractCheckPatterns: plain negative rule without quotes
+  const patterns3 = extractCheckPatterns("Never add Co-Authored-By lines");
+  assert(
+    patterns3.some(p => p.toLowerCase().includes("co-authored-by")),
+    `extractCheckPatterns extracts term from plain negative rule (got ${JSON.stringify(patterns3)})`
+  );
+
+  // 32d. checkMessageAgainstPatterns: violation detected
+  const violation = checkMessageAgainstPatterns(
+    "Fix bug\n\nCo-Authored-By: Claude <noreply@anthropic.com>",
+    ["Co-Authored-By"]
+  );
+  assert(
+    violation === "Co-Authored-By",
+    `checkMessageAgainstPatterns detects violation (got ${JSON.stringify(violation)})`
+  );
+
+  // 32e. checkMessageAgainstPatterns: clean message passes
+  const clean = checkMessageAgainstPatterns("Fix authentication bug in login flow", ["Co-Authored-By"]);
+  assert(clean === null, `checkMessageAgainstPatterns passes clean message (got ${JSON.stringify(clean)})`);
+
+  // 32f. readToolUseActions: parses tool_use blocks from JSONL
+  const toolUseJsonl = [
+    JSON.stringify({
+      type: "assistant",
+      message: {
+        content: [
+          { type: "text", text: "Let me run that" },
+          { type: "tool_use", name: "Bash", input: { command: "git status" } },
+          { type: "tool_use", name: "Read", input: { file_path: "/tmp/test" } },
+        ],
+      },
+    }),
+    JSON.stringify({
+      type: "user",
+      message: { content: "thanks" },
+    }),
+    JSON.stringify({
+      type: "assistant",
+      message: {
+        content: [
+          { type: "tool_use", name: "Edit", input: { file_path: "/tmp/x" } },
+        ],
+      },
+    }),
+  ].join("\n");
+
+  const toolUseTestFile = "/tmp/claude/smoke-test-tooluse.jsonl";
+  writeFileSync(toolUseTestFile, toolUseJsonl, "utf-8");
+  const { actions: toolActions, newOffset: toolOffset } = readToolUseActions(toolUseTestFile, 0);
+  assert(toolActions.length === 3, `readToolUseActions finds 3 tool_use blocks (got ${toolActions.length})`);
+  assert(toolActions[0].tool === "Bash", `First action is Bash (got ${toolActions[0].tool})`);
+  assert(toolActions[1].tool === "Read", `Second action is Read (got ${toolActions[1].tool})`);
+  assert(toolActions[2].tool === "Edit", `Third action is Edit (got ${toolActions[2].tool})`);
+  assert(toolOffset > 0, `readToolUseActions advances offset (got ${toolOffset})`);
+
+  // 32g. Verify build includes commit-msg.js
+  const commitMsgBuildPath = join(PROJECT_DIR, "build", "src", "cli", "commit-msg.js");
+  assert(
+    existsSync(commitMsgBuildPath),
+    `Build includes commit-msg.js at ${commitMsgBuildPath}`
+  );
 
   // -------------------------------------------------------
   // Summary

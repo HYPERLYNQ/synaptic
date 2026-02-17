@@ -22,7 +22,9 @@ import {
   readCursor,
   writeCursor,
   readNewMessages,
+  readToolUseActions,
 } from "../storage/transcript.js";
+import { extractCheckPatterns, checkMessageAgainstPatterns } from "../cli/rule-patterns.js";
 
 const DEBOUNCE_FILE = join(DB_DIR, ".last-handoff");
 const DEBOUNCE_MS = 5 * 60 * 1000; // 5 minutes
@@ -108,6 +110,63 @@ async function scanTranscript(
   writeCursor({ file: transcriptFile, offset: newOffset });
 }
 
+/**
+ * Check recent transcript for git commit tool calls that violate rules.
+ * Saves violations as pinned issue entries for session-start surfacing.
+ */
+function checkRuleViolations(
+  index: ContextIndex,
+  enrichInsert: (entry: import("../storage/markdown.js").ContextEntry) => number
+): void {
+  const rules = index.listRules();
+  if (rules.length === 0) return;
+
+  const transcriptFile = findCurrentTranscript();
+  if (!transcriptFile) return;
+
+  const cursor = readCursor();
+  // Read from start of file to catch everything (violations are rare, cost is low)
+  const { actions } = readToolUseActions(transcriptFile, 0);
+
+  for (const action of actions) {
+    // Look for Bash tool calls containing git commit
+    if (action.tool !== "Bash") continue;
+    const command = (action.input.command as string) ?? "";
+    if (!command.includes("git commit")) continue;
+
+    // Extract the -m message
+    const msgMatch = command.match(/git\s+commit\s+.*?-m\s+(?:"([^"]*(?:\\.[^"]*)*)"|'([^']*)'|(\S+))/);
+    if (!msgMatch) continue;
+    const commitMsg = msgMatch[1] ?? msgMatch[2] ?? msgMatch[3] ?? "";
+
+    // Also handle heredoc-style messages: -m "$(cat <<'EOF'\n...\nEOF\n)"
+    const heredocMatch = command.match(/cat\s+<<['"]?EOF['"]?\n([\s\S]*?)\nEOF/);
+    const fullMsg = heredocMatch ? heredocMatch[1] : commitMsg;
+
+    if (!fullMsg) continue;
+
+    for (const rule of rules) {
+      const patterns = extractCheckPatterns(rule.content);
+      const violation = checkMessageAgainstPatterns(fullMsg, patterns);
+      if (violation) {
+        // Check if we already logged this violation recently (dedup)
+        const recent = index.list({ days: 1 })
+          .filter(e => e.tags.includes("rule-violation") && e.tags.includes(`rule:${rule.label}`));
+        if (recent.length > 0) continue;
+
+        const entry = appendEntry(
+          `Rule "${rule.label}" violated: commit message contained "${violation}". Rule: ${rule.content}`,
+          "issue",
+          ["rule-violation", `rule:${rule.label}`]
+        );
+        entry.tier = "working";
+        entry.pinned = true;
+        enrichInsert(entry);
+      }
+    }
+  }
+}
+
 async function main(): Promise<void> {
   ensureDirs();
 
@@ -149,6 +208,13 @@ async function main(): Promise<void> {
       await scanTranscript(index, embedder, enrichInsert);
     } catch {
       // Don't fail the hook if transcript scanning errors
+    }
+
+    // Rule violation detection (soft enforcement)
+    try {
+      checkRuleViolations(index, enrichInsert);
+    } catch {
+      // Don't fail the hook if violation checking errors
     }
 
     // Debounce: skip handoff if one was saved recently

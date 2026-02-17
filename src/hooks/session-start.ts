@@ -71,6 +71,22 @@ async function main(): Promise<void> {
     const lines: string[] = [];
     let charCount = 0;
 
+    // --- SECTION 0: Recent rule violations (always shown, never truncated) ---
+    const recentViolations = index.list({ days: 7 })
+      .filter(e => e.tags.includes("rule-violation") && !e.archived);
+
+    if (recentViolations.length > 0) {
+      lines.push("# ⚠ RECENT RULE VIOLATIONS — you broke these rules recently, be extra careful:");
+      for (const v of recentViolations.slice(0, 3)) {
+        const ruleTag = v.tags.find(t => t.startsWith("rule:"));
+        const ruleLabel = ruleTag ? ruleTag.replace("rule:", "") : "unknown";
+        const daysAgo = Math.floor((Date.now() - new Date(v.date).getTime()) / (1000 * 60 * 60 * 24));
+        const when = daysAgo === 0 ? "today" : `${daysAgo}d ago`;
+        lines.push(`- Rule "${ruleLabel}": ${v.content.split(".")[0]} (${when})`);
+      }
+      lines.push("");
+    }
+
     // --- SECTION 1: Rules (always full, never truncated) ---
     const rules = index.listRules();
     if (rules.length > 0) {
