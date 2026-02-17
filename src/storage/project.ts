@@ -1,4 +1,4 @@
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { basename } from "node:path";
 import { isGitRepo } from "./git.js";
 
@@ -11,7 +11,7 @@ export function detectProject(cwd?: string): string | null {
   // Try git remote name first
   if (isGitRepo(dir)) {
     try {
-      const remote = execSync("git remote get-url origin", {
+      const remote = execFileSync("git", ["remote", "get-url", "origin"], {
         cwd: dir,
         encoding: "utf-8",
         timeout: 3000,

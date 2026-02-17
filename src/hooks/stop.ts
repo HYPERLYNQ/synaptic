@@ -141,7 +141,7 @@ function checkRuleViolations(
     const commitMsg = msgMatch[1] ?? msgMatch[2] ?? msgMatch[3] ?? "";
 
     // Also handle heredoc-style messages: -m "$(cat <<'EOF'\n...\nEOF\n)"
-    const heredocMatch = command.match(/cat\s+<<['"]?EOF['"]?\n([\s\S]*?)\nEOF/);
+    const heredocMatch = cmdSlice.match(/cat\s+<<['"]?EOF['"]?\n([\s\S]*?)\nEOF/);
     const fullMsg = heredocMatch ? heredocMatch[1] : commitMsg;
 
     if (!fullMsg) continue;

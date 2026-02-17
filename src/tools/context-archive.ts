@@ -3,8 +3,9 @@ import { ContextIndex } from "../storage/sqlite.js";
 
 export const contextArchiveSchema = {
   ids: z
-    .array(z.string())
+    .array(z.string().max(200))
     .min(1)
+    .max(500)
     .describe("Entry IDs to archive"),
 };
 

@@ -4,6 +4,7 @@ import { ContextIndex } from "../storage/sqlite.js";
 export const contextChainSchema = {
   chain_id: z
     .string()
+    .max(200)
     .describe("The chain ID to retrieve (e.g., 'a1b2c3d4' — without the 'chain:' prefix)"),
 };
 

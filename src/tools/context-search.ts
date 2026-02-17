@@ -4,7 +4,7 @@ import { Embedder } from "../storage/embedder.js";
 import { getCurrentProject } from "../server.js";
 
 export const contextSearchSchema = {
-  query: z.string().describe("Search query (hybrid semantic + keyword search)"),
+  query: z.string().max(10_000).describe("Search query (hybrid semantic + keyword search)"),
   type: z
     .enum(["decision", "progress", "issue", "handoff", "insight", "reference", "git_commit", "rule"])
     .optional()

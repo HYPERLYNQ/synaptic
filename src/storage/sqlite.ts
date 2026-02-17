@@ -1072,7 +1072,10 @@ export class ContextIndex {
   }
 
   /** Change tier for an entry */
-  changeTier(id: string, tier: string): boolean {
+  changeTier(id: string, tier: "ephemeral" | "working" | "longterm"): boolean {
+    if (tier !== "ephemeral" && tier !== "working" && tier !== "longterm") {
+      throw new Error("Invalid tier: must be ephemeral, working, or longterm");
+    }
     const result = this.db.prepare(
       "UPDATE entries SET tier = ? WHERE id = ?"
     ).run(tier, id);
