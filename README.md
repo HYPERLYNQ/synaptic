@@ -13,7 +13,7 @@
 
 **Claude forgets everything between sessions. Synaptic fixes that.**
 
-[![Version](https://img.shields.io/badge/version-0.8.0-blue)](https://github.com/HYPERLYNQ/synaptic)
+[![Version](https://img.shields.io/badge/version-0.9.0-blue)](https://github.com/HYPERLYNQ/synaptic/releases)
 [![Tests](https://img.shields.io/badge/tests-175%20passing-brightgreen)](https://github.com/HYPERLYNQ/synaptic)
 [![Node](https://img.shields.io/badge/node-22%2B-339933)](https://nodejs.org)
 [![License](https://img.shields.io/badge/license-source--available-orange)](LICENSE)
@@ -28,7 +28,7 @@ Every time you start a new Claude Code session, Claude doesn't remember what you
 
 Synaptic gives Claude a **persistent memory** that carries across sessions. Decisions, insights, bug fixes, project patterns — saved locally and surfaced automatically when Claude starts up.
 
-No cloud. No API keys. Everything stays on your machine.
+No cloud dependencies. No API keys. Everything stays on your machine — with optional GitHub sync across your own devices.
 
 <br>
 
@@ -74,10 +74,11 @@ Claude's auto-memory (`~/.claude/memory/`) saves short notes to files. But there
 | Git awareness | None | None | Commits, co-changes, codebase DNA |
 | Memory cleanup | Manual | Grows forever | Auto-decay by tier |
 | Pattern detection | None | None | Tracks recurring failures |
-| Auto-capture | None | None | Detects declarations, preferences, corrections |
+| Auto-capture | None | None | Semantic anchors capture preferences, decisions, debugging patterns |
 | Rule enforcement | None | None | Hard (commit-msg hook) + soft (violation detection) |
 | Transcript scanning | None | None | Passively captures from conversation history |
 | Predictive context | None | None | Surfaces relevant history at session start |
+| Multi-machine sync | None | None | GitHub-based sync across devices |
 
 <br>
 
@@ -219,7 +220,7 @@ Add to `~/.claude/settings.json`:
 
 Every entry gets a 384-dimensional embedding generated **locally** using a Hugging Face model.
 
-Search combines keyword matching with semantic similarity — searching for "auth problems" also finds entries about "login failures" and "JWT expiry," even if those exact words were never used.
+Search is **always hybrid** by default — combining BM25 keyword matching with semantic vector similarity. Searching for "email provider" finds entries about "Cloudflare Email Routing" even if those exact words were never used. Only single-word ID lookups fall back to keyword-only.
 
 Nothing is sent to the internet. Ever.
 
@@ -312,11 +313,11 @@ Not everything lasts forever. Synaptic manages it for you:
 
 | Tier | Lifespan | Best For |
 |:-----|:---------|:---------|
-| **Ephemeral** | ~4 days | Progress updates, handoffs |
-| **Working** | ~14 days | Decisions, bugs, insights |
+| **Ephemeral** | 7-21 days | Progress updates, handoffs |
+| **Working** | 21-90 days | Decisions, bugs, insights |
 | **Longterm** | Forever | Rules, references, conventions |
 
-Entries that get searched often survive longer automatically.
+Entries that get searched often survive longer automatically. Unused ephemeral entries decay after 7 days; frequently accessed ones last up to 21. Working entries idle for 21-90 days demote to ephemeral.
 
 <br>
 
@@ -324,13 +325,15 @@ Entries that get searched often survive longer automatically.
 
 Synaptic doesn't just store what Claude explicitly saves — it **captures what Claude misses**.
 
-**Intent Classification** — The stop hook scans each session for declarations, preferences, identities, and frustrations using semantic similarity against intent templates. If you say "X is my project" or "I prefer bun over npm," Synaptic auto-captures it as a longterm reference without you asking.
+**Semantic Capture** — Every message in the conversation is embedded and classified against 6 semantic anchors (rules, preferences, recommendations, corrections, standards, debugging). Regex signal detection provides a confidence boost. This means natural language like "keep design consistent," "that looks terrible," or "I recommend Cloudflare" is captured automatically — no template matching required.
+
+**Directive Detection** — User messages that express rules or standards ("always use tabs," "never auto-commit") are automatically flagged as pending rule proposals when both semantic anchors and signal words agree. Deduplicated against existing rules.
+
+**Debugging Patterns** — Trial-and-error sequences (errors followed by resolutions) are detected and saved as longterm insights. When Claude tries something that fails before finding the fix, the entire pattern is preserved so the same mistakes aren't repeated across sessions.
 
 **Predicted Focus** — At session start, Synaptic analyzes your current git branch, uncommitted files, and last session's handoff to predict what you're about to work on. It surfaces the 2-3 most relevant past entries automatically.
 
 **Consolidation Engine** — Duplicate entries about the same topic are automatically merged during maintenance. The highest-access entry survives with merged tags; the rest are archived. Keeps your memory clean without losing information.
-
-**Transcript Scanning** — On every Claude response, Synaptic incrementally scans the JSONL conversation transcript. User messages are classified for intent (declarations, preferences, frustrations) and assistant messages for insight categories (decisions, solutions, discoveries). Matching content is auto-saved as working-tier insights — no explicit `context_save` needed. Deduplication via vector similarity prevents redundant entries.
 
 **Handoff Access Bumps** — Entries important enough to appear in session handoffs get their access counts incremented, making them survive longer in the decay system. Important memories are self-reinforcing.
 
@@ -339,6 +342,27 @@ Synaptic doesn't just store what Claude explicitly saves — it **captures what 
 ### Watch Mode
 
 A background watcher observes your `.git/` directory for branch switches and new commits. Changes are auto-indexed after a 2-second debounce. Starts and stops with the MCP server — nothing extra to manage.
+
+<br>
+
+### Cross-Machine Sync
+
+Use Synaptic on multiple machines? Sync your context between them via a private GitHub repo.
+
+```bash
+synaptic sync init          # One-time setup — creates private repo, generates machine ID
+synaptic sync now           # Push & pull immediately
+synaptic sync status        # Show machines, last sync times
+```
+
+Each machine writes to its own append-only JSONL file — no merge conflicts. Entry IDs are globally unique, so dedup is automatic. Embeddings are regenerated locally on each machine.
+
+Sync also runs automatically:
+- **Session start** — pulls new entries from other machines
+- **Session end** — pushes your new entries
+- **Background** — push/pull every 2 minutes while the MCP server is running
+
+Requires the `gh` CLI (already installed for most developers). All data flows through your own private GitHub repo — nothing touches third-party servers.
 
 <br>
 
@@ -364,8 +388,8 @@ Three hooks handle the lifecycle automatically:
 │   COMPRESS →  Preserves important context before     │
 │               conversation is compressed             │
 │                                                     │
-│   END ────→  Scans transcript, checks rule violations, │
-│              saves handoff, detects corrections        │
+│   END ────→  Semantic transcript scan, directive detection, │
+│              debugging patterns, handoff, rule checks      │
 │                                                     │
 └─────────────────────────────────────────────────────┘
 ```
@@ -393,6 +417,7 @@ Data is stored in SQLite with full-text search and vector similarity search. All
 - Full search
 - Git intelligence
 - Pre-commit guardian
+- Cross-machine sync via GitHub
 
 </td>
 <td width="50%">
@@ -401,7 +426,6 @@ Data is stored in SQLite with full-text search and vector similarity search. All
 **Coming soon**
 
 - Shared context across team members
-- Cloud sync between machines
 - Team rules and conventions
 - Analytics dashboard
 - Priority support

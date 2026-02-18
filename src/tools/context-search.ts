@@ -38,8 +38,9 @@ export const contextSearchSchema = {
 };
 
 function autoDetectMode(query: string): "fast" | "hybrid" {
+  // Only single-word ID-like queries (labels, exact keys) use BM25-only
   const words = query.trim().split(/\s+/);
-  if (words.length <= 3 && !query.includes("?")) return "fast";
+  if (words.length === 1 && /^[a-z0-9_-]+$/i.test(words[0])) return "fast";
   return "hybrid";
 }
 

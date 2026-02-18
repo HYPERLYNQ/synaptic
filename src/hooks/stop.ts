@@ -26,6 +26,7 @@ import {
 } from "../storage/transcript.js";
 import { extractCheckPatterns, checkMessageAgainstPatterns } from "../cli/rule-patterns.js";
 import { isSyncEnabled, readSyncState, pushEntries } from "../storage/sync.js";
+import { scoreSignals } from "../storage/signals.js";
 
 const DEBOUNCE_FILE = join(DB_DIR, ".last-handoff");
 const DEBOUNCE_MS = 5 * 60 * 1000; // 5 minutes
@@ -60,53 +61,141 @@ async function scanTranscript(
   const cursor = readCursor();
   const offset = (cursor && cursor.file === transcriptFile) ? cursor.offset : 0;
 
-  // 3. Read new messages (cap at 10 per scan)
+  // 3. Read new messages (no cap — readNewMessages already caps at 10MB)
   const { messages, newOffset } = readNewMessages(transcriptFile, offset);
-  const capped = messages.slice(0, 10);
+  const capped = messages;
 
   if (capped.length === 0) {
-    // Still update cursor to track position even if no qualifying messages
     writeCursor({ file: transcriptFile, offset: newOffset });
     return;
   }
 
-  // Pre-load templates
-  const intentTemplates = await embedder.getIntentTemplates();
-  const categoryTemplates = await embedder.getCategoryTemplates();
+  // Pre-load anchor templates once
+  await embedder.getAnchorTemplates();
 
+  // === Primary capture loop: semantics-first with signal boost ===
   for (const msg of capped) {
-    let matchResult: { category: string; similarity: number } | null = null;
+    // Skip very short messages (no semantic value)
+    if (msg.text.length < 20) continue;
 
-    if (msg.role === "user") {
-      // 4. Classify user messages with intent templates (threshold 0.3)
-      matchResult = await embedder.classifySentence(msg.text, intentTemplates, 0.3);
-    } else {
-      // 5. Classify assistant text with category templates (threshold 0.7)
-      matchResult = await embedder.classifySentence(msg.text, categoryTemplates, 0.7);
-    }
-
-    if (!matchResult) continue;
-
-    // 6. Deduplicate via searchVec — skip if L2 distance < 0.55 (≈ cosine 0.85)
+    // 1. Embed the message (cached)
     const msgEmb = await embedder.embed(msg.text);
-    const similar = index.searchVec(msgEmb, 1);
-    if (similar.length > 0 && similar[0].distance < 0.55) {
-      continue; // too similar to existing entry
-    }
 
-    // 7. Save as insight with transcript-scan tags
+    // 2. Deduplicate via vector similarity
+    const similar = index.searchVec(msgEmb, 1);
+    if (similar.length > 0 && similar[0].distance < 0.55) continue;
+
+    // 3. Score regex signals (fast boost layer)
+    const signals = scoreSignals(msg.text);
+
+    // 4. Classify against semantic anchors with signal boost
+    const match = await embedder.classifyWithAnchors(msg.text, signals.total);
+
+    // 5. Skip if no anchor matches even with boost
+    if (!match) continue;
+
+    // 6. Determine tier based on confidence
+    let tier: "ephemeral" | "working" = "ephemeral";
+    if (match.confidence >= 0.50) tier = "working";
+
+    // 7. Save with semantic category + signal info
     const tags = [
       "transcript-scan",
       `source:${msg.role}`,
-      `intent:${matchResult.category}`,
+      `anchor:${match.category}`,
+      ...(signals.total > 0 ? [`signal:${signals.dominant}`] : []),
     ];
     const entry = appendEntry(msg.text, "insight", tags);
-    entry.tier = "working";
+    entry.tier = tier;
     const rowid = enrichInsert(entry);
     index.insertVec(rowid, msgEmb);
   }
 
-  // 8. Update cursor
+  // === Real-time directive detection for user messages ===
+  for (const msg of capped) {
+    if (msg.role !== "user") continue;
+    if (msg.text.length < 20) continue;
+
+    const signals = scoreSignals(msg.text);
+    const match = await embedder.classifyWithAnchors(msg.text, signals.total);
+
+    // Only promote to pending rule if classified as rule/standard/correction with high confidence
+    if (!match || match.confidence < 0.50) continue;
+    if (!["rule", "standard", "correction"].includes(match.category)) continue;
+
+    // Must also have directive/temporal/consistency signal words (semantic + signal agreement)
+    const directiveStrength = (signals.signals.directive ?? 0) +
+                              (signals.signals.temporal ?? 0) +
+                              (signals.signals.consistency ?? 0);
+    if (directiveStrength < 0.5) continue;
+
+    // Deduplicate against existing rules + existing pending_rule entries
+    const msgEmb = await embedder.embed(msg.text);
+    const existingRules = index.listRules();
+    const pendingRules = index.list({ days: 7 }).filter(e => e.tags.includes("pending_rule"));
+    let isDuplicate = false;
+
+    for (const rule of [...existingRules, ...pendingRules.map(r => ({ label: "", content: r.content }))]) {
+      const ruleEmb = await embedder.embed(rule.content);
+      let dot = 0;
+      for (let i = 0; i < msgEmb.length; i++) dot += msgEmb[i] * ruleEmb[i];
+      if (dot >= 0.75) { isDuplicate = true; break; }
+    }
+    if (isDuplicate) continue;
+
+    const label = msg.text.slice(0, 40).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/-+$/, "");
+    const pendingEntry = appendEntry(msg.text, "insight", [
+      "pending_rule",
+      `proposed-label:${label}`,
+      `anchor:${match.category}`,
+    ]);
+    pendingEntry.tier = "working";
+    const rowid = enrichInsert(pendingEntry);
+    index.insertVec(rowid, msgEmb);
+  }
+
+  // === Error-resolution pattern capture ===
+  const errorPatterns = /\b(error|failed|doesn't work|can't|couldn't|not working|undefined|ENOENT|EACCES|EPERM|exit code [1-9]|command not found|TypeError|ReferenceError|SyntaxError)\b/i;
+  const resolutionPatterns = /\b(fix was|solution is|worked because|the issue was|root cause|that fixed|now works|resolved by|the problem was)\b/i;
+
+  for (let i = 0; i < capped.length; i++) {
+    const msg = capped[i];
+    if (msg.role !== "assistant") continue;
+    if (!resolutionPatterns.test(msg.text)) continue;
+
+    // Found a resolution — look backwards for error context
+    const errorContext: string[] = [];
+    for (let j = Math.max(0, i - 8); j < i; j++) {
+      const prev = capped[j];
+      if (errorPatterns.test(prev.text)) {
+        const summary = prev.text.length > 200 ? prev.text.slice(0, 200) + "..." : prev.text;
+        errorContext.push(`[${prev.role}] ${summary}`);
+      }
+    }
+
+    // Only save if there were actual errors before the resolution (trial-and-error)
+    if (errorContext.length === 0) continue;
+
+    // Compose a rich debugging insight
+    const resolution = msg.text.length > 300 ? msg.text.slice(0, 300) + "..." : msg.text;
+    const debugContent = `Debugging pattern (${errorContext.length} errors before resolution):\n\nFailed attempts:\n${errorContext.map(e => `- ${e}`).join("\n")}\n\nResolution:\n${resolution}`;
+
+    // Deduplicate
+    const debugEmb = await embedder.embed(debugContent);
+    const debugSimilar = index.searchVec(debugEmb, 1);
+    if (debugSimilar.length > 0 && debugSimilar[0].distance < 0.55) continue;
+
+    const entry = appendEntry(debugContent, "insight", [
+      "debugging-pattern",
+      "transcript-scan",
+      "auto-captured",
+    ]);
+    entry.tier = "longterm";
+    const rowid = enrichInsert(entry);
+    index.insertVec(rowid, debugEmb);
+  }
+
+  // Update cursor
   writeCursor({ file: transcriptFile, offset: newOffset });
 }
 
