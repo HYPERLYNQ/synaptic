@@ -27,6 +27,10 @@ interface CursorData {
 /**
  * Convert a cwd path to a Claude project directory path.
  * `/home/user/project` → `~/.claude/projects/-home-user-project/`
+ *
+ * When running inside WSL from a Windows Claude session (hooks invoked via wsl.exe),
+ * the cwd is under /mnt/c/ but the transcript lives in the Windows user's
+ * ~/.claude/projects/ directory. We detect this and check both locations.
  */
 export function findClaudeProjectDir(cwd?: string): string | null {
   const dir = cwd ?? process.cwd();
@@ -34,6 +38,28 @@ export function findClaudeProjectDir(cwd?: string): string | null {
   const encoded = dir.replace(/^\//, "").replaceAll(sep === "\\" ? /[\\/]/g : /\//g, "-");
   const projectDir = join(homedir(), ".claude", "projects", `-${encoded}`);
   if (existsSync(projectDir)) return projectDir;
+
+  // WSL fallback: if cwd is under /mnt/<drive>/, check the Windows-side .claude directory.
+  // Windows Claude encodes paths by replacing : and \ with -, no leading dash prefix.
+  // e.g. C:\Users\mivid → C--Users-mivid
+  const wslMatch = dir.match(/^\/mnt\/([a-z])(\/.*)/);
+  if (wslMatch) {
+    const [, drive, rest] = wslMatch;
+    // Reconstruct Windows path encoding: C:\Users\mivid → C--Users-mivid
+    const restEncoded = rest.replaceAll("/", "-");
+    // Try both uppercase and lowercase drive letter (depends on how user launched)
+    for (const d of [drive.toUpperCase(), drive.toLowerCase()]) {
+      const winEncoded = `${d}-${restEncoded}`;
+      // Find Windows home: look for Users dir in the drive mount
+      const winUsersMatch = dir.match(/^\/mnt\/[a-z]\/Users\/([^/]+)/);
+      const winHome = winUsersMatch
+        ? `/mnt/${drive}/Users/${winUsersMatch[1]}`
+        : `/mnt/${drive}/Users/Default`;
+      const winProjectDir = join(winHome, ".claude", "projects", winEncoded);
+      if (existsSync(winProjectDir)) return winProjectDir;
+    }
+  }
+
   return null;
 }
 
