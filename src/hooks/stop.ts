@@ -391,10 +391,36 @@ async function main(): Promise<void> {
       }
 
       // Also check non-tagged entries for directive language
-      for (const entry of nonInsightEntries.slice(0, 15)) {
+      // Filter out auto-generated entries to prevent feedback loops
+      const candidateEntries = nonInsightEntries
+        .filter(e =>
+          !e.tags.includes("auto-captured") &&
+          !e.tags.includes("transcript-scan") &&
+          !e.tags.includes("pending_rule") &&
+          !e.tags.includes("rule_conflict") &&
+          !e.tags.includes("debugging-pattern")
+        )
+        .slice(0, 15);
+
+      // Pre-load existing pending rules for deduplication
+      const existingPending = index.list({ days: 7 })
+        .filter(e => e.tags.includes("pending_rule"));
+
+      for (const entry of candidateEntries) {
         const match = await embedder.classifySentence(entry.content, directiveTemplates, 0.75);
         if (match && !corrections.some(c => c.content === entry.content)) {
-          corrections.push({ content: entry.content, category: match.category });
+          // Deduplicate against existing pending rules
+          const entryEmb = await embedder.embed(entry.content);
+          let isDuplicate = false;
+          for (const pending of existingPending) {
+            const pendingEmb = await embedder.embed(pending.content);
+            let dot = 0;
+            for (let i = 0; i < entryEmb.length; i++) dot += entryEmb[i] * pendingEmb[i];
+            if (dot >= 0.75) { isDuplicate = true; break; }
+          }
+          if (!isDuplicate) {
+            corrections.push({ content: entry.content, category: match.category });
+          }
         }
       }
 
