@@ -34,33 +34,50 @@ interface CursorData {
  */
 export function findClaudeProjectDir(cwd?: string): string | null {
   const dir = cwd ?? process.cwd();
-  // Claude encodes the path by replacing separators with dashes
+  const candidates: string[] = [];
+
+  // Candidate 1: Standard WSL encoding (e.g. /mnt/c/Users/mivid → -mnt-c-Users-mivid)
   const encoded = dir.replace(/^\//, "").replaceAll(sep === "\\" ? /[\\/]/g : /\//g, "-");
   const projectDir = join(homedir(), ".claude", "projects", `-${encoded}`);
-  if (existsSync(projectDir)) return projectDir;
+  if (existsSync(projectDir)) candidates.push(projectDir);
 
-  // WSL fallback: if cwd is under /mnt/<drive>/, check the Windows-side .claude directory.
+  // Candidate 2: Windows-side .claude directory (when hooks run via wsl.exe from Windows Claude)
   // Windows Claude encodes paths by replacing : and \ with -, no leading dash prefix.
   // e.g. C:\Users\mivid → C--Users-mivid
   const wslMatch = dir.match(/^\/mnt\/([a-z])(\/.*)/);
   if (wslMatch) {
     const [, drive, rest] = wslMatch;
-    // Reconstruct Windows path encoding: C:\Users\mivid → C--Users-mivid
     const restEncoded = rest.replaceAll("/", "-");
-    // Try both uppercase and lowercase drive letter (depends on how user launched)
     for (const d of [drive.toUpperCase(), drive.toLowerCase()]) {
       const winEncoded = `${d}-${restEncoded}`;
-      // Find Windows home: look for Users dir in the drive mount
       const winUsersMatch = dir.match(/^\/mnt\/[a-z]\/Users\/([^/]+)/);
       const winHome = winUsersMatch
         ? `/mnt/${drive}/Users/${winUsersMatch[1]}`
         : `/mnt/${drive}/Users/Default`;
       const winProjectDir = join(winHome, ".claude", "projects", winEncoded);
-      if (existsSync(winProjectDir)) return winProjectDir;
+      if (existsSync(winProjectDir)) candidates.push(winProjectDir);
     }
   }
 
-  return null;
+  if (candidates.length === 0) return null;
+  if (candidates.length === 1) return candidates[0];
+
+  // Multiple candidates: return the one with the most recently modified .jsonl file
+  let best: { dir: string; mtime: number } | null = null;
+  for (const candidateDir of candidates) {
+    try {
+      for (const file of readdirSync(candidateDir)) {
+        if (!file.endsWith(".jsonl")) continue;
+        const st = statSync(join(candidateDir, file));
+        if (!best || st.mtimeMs > best.mtime) {
+          best = { dir: candidateDir, mtime: st.mtimeMs };
+        }
+      }
+    } catch {
+      // skip unreadable
+    }
+  }
+  return best?.dir ?? candidates[0];
 }
 
 /**
