@@ -19,6 +19,7 @@ export class Embedder {
   private directiveTemplates: TemplateEmbedding[] | null = null;
   private categoryTemplates: TemplateEmbedding[] | null = null;
   private intentTemplates: TemplateEmbedding[] | null = null;
+  private anchorTemplates: TemplateEmbedding[] | null = null;
 
   /** Pre-load the model so first real query is fast. */
   async warmup(): Promise<void> {
@@ -132,6 +133,57 @@ export class Embedder {
       this.intentTemplates.push({ ...i, embedding });
     }
     return this.intentTemplates;
+  }
+
+  /** Pre-computed semantic anchors for broad concept matching */
+  async getAnchorTemplates(): Promise<TemplateEmbedding[]> {
+    if (this.anchorTemplates) return this.anchorTemplates;
+
+    const anchors = [
+      { category: "rule", text: "A permanent rule, instruction, or standard that must always be followed in future work" },
+      { category: "preference", text: "A personal preference, taste, or opinion about tools, style, design, aesthetics, or workflow" },
+      { category: "recommendation", text: "A specific tool, service, library, or approach that was recommended, suggested, or chosen" },
+      { category: "correction", text: "A correction, complaint, or negative reaction — something is wrong, bad, or should be different" },
+      { category: "standard", text: "A consistency requirement, convention, or pattern that should apply uniformly across a project" },
+      { category: "debugging", text: "A debugging lesson learned from trial and error — what was tried, what failed, and what ultimately worked" },
+    ];
+
+    this.anchorTemplates = [];
+    for (const a of anchors) {
+      const embedding = await this.embed(a.text);
+      this.anchorTemplates.push({ ...a, embedding });
+    }
+    return this.anchorTemplates;
+  }
+
+  /**
+   * Classify text against semantic anchors with signal boost.
+   * Returns the best matching anchor category and confidence, or null if below threshold.
+   */
+  async classifyWithAnchors(
+    text: string,
+    signalBoost: number,
+    threshold: number = 0.35
+  ): Promise<{ category: string; confidence: number } | null> {
+    const textEmb = await this.embed(text);
+    const anchors = await this.getAnchorTemplates();
+
+    let best: { category: string; confidence: number } | null = null;
+
+    for (const anchor of anchors) {
+      let dot = 0;
+      for (let i = 0; i < textEmb.length; i++) {
+        dot += textEmb[i] * anchor.embedding[i];
+      }
+      // Add normalized signal boost (capped at 0.15)
+      const boosted = dot + Math.min(signalBoost / 10, 0.15);
+
+      if (boosted >= threshold && (!best || boosted > best.confidence)) {
+        best = { category: anchor.category, confidence: boosted };
+      }
+    }
+
+    return best;
   }
 
   /** Classify a sentence against templates, return best match if above threshold */

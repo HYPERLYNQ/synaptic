@@ -601,14 +601,14 @@ export class ContextIndex {
 
   /** Archive ephemeral entries based on access-aware windows */
   decayEphemeral(): number {
-    // 0 accesses: 3 days, 1-2 accesses: 7 days, 3+ accesses: 14 days
+    // 0 accesses: 7 days, 1-2 accesses: 14 days, 3+ accesses: 21 days
     const stmt = this.db.prepare(`
       UPDATE entries SET archived = 1
       WHERE tier = 'ephemeral' AND pinned = 0 AND archived = 0
         AND (
-          (access_count = 0 AND date < date('now', '-3 days'))
-          OR (access_count BETWEEN 1 AND 2 AND date < date('now', '-7 days'))
-          OR (access_count >= 3 AND date < date('now', '-14 days'))
+          (access_count = 0 AND date < date('now', '-7 days'))
+          OR (access_count BETWEEN 1 AND 2 AND date < date('now', '-14 days'))
+          OR (access_count >= 3 AND date < date('now', '-21 days'))
         )
     `);
     return Number(stmt.run().changes);
@@ -616,14 +616,14 @@ export class ContextIndex {
 
   /** Demote working entries based on access-aware idle windows */
   demoteIdle(): number {
-    // 0 accesses: 15 days, 1-2 accesses: 30 days, 3+ accesses: 60 days
+    // 0 accesses: 21 days, 1-2 accesses: 45 days, 3+ accesses: 90 days
     const stmt = this.db.prepare(`
       UPDATE entries SET tier = 'ephemeral'
       WHERE tier = 'working' AND pinned = 0 AND archived = 0
         AND (
-          (access_count = 0 AND COALESCE(last_accessed, date) < date('now', '-15 days'))
-          OR (access_count BETWEEN 1 AND 2 AND COALESCE(last_accessed, date) < date('now', '-30 days'))
-          OR (access_count >= 3 AND COALESCE(last_accessed, date) < date('now', '-60 days'))
+          (access_count = 0 AND COALESCE(last_accessed, date) < date('now', '-21 days'))
+          OR (access_count BETWEEN 1 AND 2 AND COALESCE(last_accessed, date) < date('now', '-45 days'))
+          OR (access_count >= 3 AND COALESCE(last_accessed, date) < date('now', '-90 days'))
         )
     `);
     return Number(stmt.run().changes);
