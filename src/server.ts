@@ -23,6 +23,7 @@ import { SyncScheduler } from "./storage/sync-background.js";
 
 let _embedder: Embedder;
 let _currentProject: string | null = null;
+let _deferredInit: (() => void) | null = null;
 
 export function getEmbedder(): Embedder {
   return _embedder;
@@ -30,6 +31,14 @@ export function getEmbedder(): Embedder {
 
 export function getCurrentProject(): string | null {
   return _currentProject;
+}
+
+/** Start background services (git watcher, sync) — call AFTER server.connect() */
+export function startBackgroundServices(): void {
+  if (_deferredInit) {
+    _deferredInit();
+    _deferredInit = null;
+  }
 }
 
 export { getSessionId } from "./storage/session.js";
@@ -41,21 +50,30 @@ export function createServer(): McpServer {
   _embedder = new Embedder();
   const embedder = _embedder;
 
-  // Start git event watcher (silent no-op if not a git repo)
-  const watcher = new GitWatcher({
-    index,
-    embedder,
-    getCurrentProject: () => _currentProject,
-  });
-  watcher.start();
+  // Defer background services to after MCP handshake completes
+  _deferredInit = () => {
+    try {
+      const watcher = new GitWatcher({
+        index,
+        embedder,
+        getCurrentProject: () => _currentProject,
+      });
+      watcher.start();
+    } catch {
+      // Git watcher is best-effort
+    }
 
-  // Start background sync (no-op if sync not configured)
-  const syncScheduler = new SyncScheduler(index, embedder);
-  syncScheduler.start();
+    try {
+      const syncScheduler = new SyncScheduler(index, embedder);
+      syncScheduler.start();
+    } catch {
+      // Sync is best-effort
+    }
+  };
 
   const server = new McpServer({
     name: "synaptic",
-    version: "0.6.0",
+    version: "0.9.4",
   });
 
   server.tool(

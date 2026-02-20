@@ -2,6 +2,10 @@
  * SessionStart hook: Injects rules + recent context into Claude's conversation.
  * Stdout from this hook is automatically added to Claude's context.
  *
+ * Architecture: Fast DB reads happen FIRST and output immediately.
+ * Expensive operations (git indexing, sync) happen AFTER output,
+ * so a timeout never causes lost context.
+ *
  * Injection priority (token budget ~4000 chars):
  * 1. Rules (always full, never truncated)
  * 2. Recent context (last 3 days, compact format, same-project boosted)
@@ -47,291 +51,305 @@ async function main(): Promise<void> {
 
   const index = new ContextIndex();
 
-  // Auto-install the auto-distill rule if not present
-  const rules = index.listRules();
-  const hasAutoDistill = rules.some(r => r.label === "auto-distill");
-  if (!hasAutoDistill) {
-    index.saveRule(
-      "auto-distill",
-      "When a significant decision is made, a problem is solved, a correction is given, or something surprising is discovered, save it as an insight to Synaptic immediately using context_save. Tag corrections with 'correction'. When following up on a previous decision, include its chain tag (e.g., chain:abc123). Don't wait for session end."
-    );
-  }
-
-  // Run maintenance (decay, promotion) before listing
-  const maintenance = runMaintenance(index);
-
   try {
-    // Auto-index recent git commits (silent)
-    const embedder = new Embedder();
-    try {
-      await contextGitIndex({ days: 1 }, index, embedder);
-    } catch {
-      // Don't block session start
-    }
-
-    // Pull synced entries from other machines
-    let syncPulled = 0;
-    try {
-      if (isSyncEnabled()) {
-        const syncState = readSyncState();
-        if (syncState) {
-          const result = await pullEntries(index, embedder, syncState);
-          syncPulled = result.pulled;
-        }
-      }
-    } catch {
-      // Don't block session start
-    }
-
-    const lines: string[] = [];
-    let charCount = 0;
-
-    // --- SECTION 0: Recent rule violations (always shown, never truncated) ---
-    const recentViolations = index.list({ days: 7 })
-      .filter(e => e.tags.includes("rule-violation") && !e.archived);
-
-    if (recentViolations.length > 0) {
-      lines.push("# ⚠ RECENT RULE VIOLATIONS — you broke these rules recently, be extra careful:");
-      for (const v of recentViolations.slice(0, 3)) {
-        const ruleTag = v.tags.find(t => t.startsWith("rule:"));
-        const ruleLabel = ruleTag ? ruleTag.replace("rule:", "") : "unknown";
-        const daysAgo = Math.floor((Date.now() - new Date(v.date).getTime()) / (1000 * 60 * 60 * 24));
-        const when = daysAgo === 0 ? "today" : `${daysAgo}d ago`;
-        lines.push(`- Rule "${ruleLabel}": ${v.content.split(".")[0]} (${when})`);
-      }
-      lines.push("");
-    }
-
-    // --- SECTION 1: Rules (always full, never truncated) ---
+    // Auto-install the auto-distill rule if not present
     const rules = index.listRules();
-    if (rules.length > 0) {
-      lines.push("# Rules (ALWAYS follow, NO exceptions)");
-      for (const rule of rules) {
-        lines.push(`- ${rule.content}`);
-      }
-      lines.push("");
-    }
-    charCount = lines.join("\n").length;
-
-    // --- SECTION 1b: Pending rules for approval (high priority, right after rules) ---
-    const budgetForPending: string[] = [];
-    const pendingRules = index.list({ days: 7 })
-      .filter(e => e.tags.includes("pending_rule") && !e.archived);
-
-    if (pendingRules.length > 0) {
-      budgetForPending.push("## Pending rules (approve or dismiss)");
-      for (const pr of pendingRules.slice(0, 3)) {
-        const labelTag = pr.tags.find(t => t.startsWith("proposed-label:"));
-        const label = labelTag ? labelTag.replace("proposed-label:", "") : "unnamed";
-        budgetForPending.push(`- "${label}": ${pr.content.slice(0, 100)}`);
-      }
-      budgetForPending.push("_Ask user to accept (context_save_rule) or dismiss (context_archive)._");
-      budgetForPending.push("");
+    const hasAutoDistill = rules.some(r => r.label === "auto-distill");
+    if (!hasAutoDistill) {
+      index.saveRule(
+        "auto-distill",
+        "When a significant decision is made, a problem is solved, a correction is given, or something surprising is discovered, save it as an insight to Synaptic immediately using context_save. Tag corrections with 'correction'. When following up on a previous decision, include its chain tag (e.g., chain:abc123). Don't wait for session end."
+      );
     }
 
-    // Rule conflicts
-    const conflicts = index.list({ days: 7 })
-      .filter(e => e.tags.includes("rule_conflict") && !e.archived);
+    // Run maintenance (fast, pure SQL)
+    const maintenance = runMaintenance(index);
 
-    if (conflicts.length > 0) {
-      if (budgetForPending.length === 0) {
-        budgetForPending.push("## Pending rules (approve or dismiss)");
-      }
-      for (const c of conflicts.slice(0, 2)) {
-        budgetForPending.push(`- CONFLICT: ${c.content.slice(0, 120)}`);
-      }
-      if (budgetForPending[budgetForPending.length - 1] !== "") {
-        budgetForPending.push("");
-      }
+    // === PHASE 1: Build context from DB reads (fast) and output immediately ===
+    const lines = buildContextLines(index, currentProject, maintenance);
+
+    if (lines.length > 1) {
+      process.stdout.write(lines.join("\n"));
     }
 
-    // --- SECTION 2: Recent context (last 3 days, compact, project-boosted) ---
-    const budgetForContext: string[] = [];
-    const recent = index.list({ days: 3 })
-      .filter(e => e.tier !== "ephemeral" && e.type !== "handoff" && e.type !== "rule")
-      .sort((a, b) => {
-        // Same project first
-        const aMatch = a.project === currentProject ? 1 : 0;
-        const bMatch = b.project === currentProject ? 1 : 0;
-        if (aMatch !== bMatch) return bMatch - aMatch;
-        // Then by date/time desc
-        return 0; // already sorted by date desc from list()
-      });
-    if (recent.length > 0) {
-      budgetForContext.push("## Recent Context (last 3 days)");
-      let currentDate = "";
-      for (const entry of recent.slice(0, 15)) {
-        if (entry.date !== currentDate) {
-          currentDate = entry.date;
-          budgetForContext.push(`\n### ${currentDate.slice(5)}`);
-        }
-        budgetForContext.push(`- ${entry.time} [${entry.type}] ${entry.content}`);
-      }
-      budgetForContext.push("");
-    }
+    // === PHASE 2: Expensive background operations (can safely timeout) ===
+    try {
+      const embedder = new Embedder();
 
-    // --- SECTION 3: Recent handoff (1 only) ---
-    const budgetForHandoff: string[] = [];
-    const handoffs = index.list({ days: 7, type: "handoff" }).slice(0, 1);
-    if (handoffs.length > 0) {
-      const h = handoffs[0];
-      budgetForHandoff.push("## Recent Handoff");
-      budgetForHandoff.push(`- ${h.date.slice(5)} ${h.time}: ${h.content}`);
-      budgetForHandoff.push("");
-    }
-
-    // --- SECTION 4: Recurring patterns ---
-    const budgetForPatterns: string[] = [];
-    const patterns = index.getActivePatterns();
-    if (patterns.length > 0) {
-      budgetForPatterns.push("## Recurring Issues");
-      for (const p of patterns) {
-        const isFailure = p.label.startsWith("Pre-commit failure");
-        if (isFailure) {
-          const allEntries = index.list({ days: 30 });
-          const fileTags = p.entryIds
-            .flatMap(id => {
-              const entry = allEntries.find(e => e.id === id);
-              return entry ? entry.tags.filter(t => t.startsWith("file:")) : [];
-            })
-            .map(t => t.replace("file:", ""));
-          const uniqueFiles = [...new Set(fileTags)].slice(0, 3);
-          const fileStr = uniqueFiles.length > 0 ? ` (${uniqueFiles.join(", ")})` : "";
-          budgetForPatterns.push(`- pre-commit failure${fileStr} — ${p.occurrenceCount}x (last: ${p.lastSeen.slice(5)})`);
-        } else {
-          budgetForPatterns.push(`- "${p.label}" — ${p.occurrenceCount}x (last: ${p.lastSeen.slice(5)})`);
-        }
-      }
-      budgetForPatterns.push("");
-    }
-
-    // --- SECTION 5: Predicted focus ---
-    const budgetForFocus: string[] = [];
-    const cwd = process.cwd();
-    if (isGitRepo(cwd)) {
+      // Git index (silent, best-effort)
       try {
-        const branch = getCurrentBranch(cwd);
-        const recentFiles = getRecentlyChangedFiles(cwd);
+        await contextGitIndex({ days: 1 }, index, embedder);
+      } catch {
+        // Don't block session start
+      }
 
-        // Build focus query from branch + files + last handoff
-        const queryParts: string[] = [];
-        if (branch && branch !== "main" && branch !== "master") {
-          // Branch name often contains feature context: feature/auth-rework -> auth rework
-          queryParts.push(branch.replace(/[\/\-_]/g, " "));
-        }
-        if (recentFiles.length > 0) {
-          queryParts.push(recentFiles.slice(0, 5).join(" "));
-        }
-        // Include last handoff learnings for continuity
-        const handoffs = index.list({ days: 7, type: "handoff" }).slice(0, 1);
-        if (handoffs.length > 0) {
-          const handoffContent = handoffs[0].content.slice(0, 200);
-          queryParts.push(handoffContent);
-        }
-
-        if (queryParts.length > 0) {
-          const focusQuery = queryParts.join(" ");
-          const focusResults = index.search(focusQuery, { limit: 3 })
-            .filter(e => e.type !== "handoff" && e.type !== "git_commit");
-
-          if (focusResults.length > 0) {
-            const fileCount = recentFiles.length;
-            const branchStr = branch ? `Branch: ${branch}` : "No branch";
-            const filesStr = fileCount > 0 ? ` | ${fileCount} uncommitted file${fileCount === 1 ? "" : "s"}` : "";
-
-            budgetForFocus.push("## Predicted focus");
-            budgetForFocus.push(`${branchStr}${filesStr}`);
-            for (const r of focusResults) {
-              const ago = Math.floor((Date.now() - new Date(r.date).getTime()) / (1000 * 60 * 60 * 24));
-              budgetForFocus.push(`- [${ago}d ago] ${r.type}: ${r.content.slice(0, 120)}`);
-            }
-            budgetForFocus.push("");
-          }
-        }
-
-        // Co-change suggestions (fold into focus section)
-        if (currentProject && recentFiles.length > 0) {
-          const suggestions: string[] = [];
-          for (const file of recentFiles.slice(0, 5)) {
-            const cochanges = index.getCoChanges(currentProject, file, 3)
-              .filter(c => c.count >= 3 && !recentFiles.includes(c.file));
-            if (cochanges.length > 0) {
-              const pairs = cochanges.map(c => `${c.file} (${c.count}x)`).join(", ");
-              suggestions.push(`- ${file} → usually also changes: ${pairs}`);
-            }
-          }
-          if (suggestions.length > 0) {
-            if (budgetForFocus.length === 0) {
-              budgetForFocus.push("## Predicted focus");
-            }
-            budgetForFocus.push(...suggestions);
-            budgetForFocus.push("");
+      // Sync pull (silent, best-effort)
+      try {
+        if (isSyncEnabled()) {
+          const syncState = readSyncState();
+          if (syncState) {
+            await pullEntries(index, embedder, syncState);
           }
         }
       } catch {
         // Don't block session start
       }
+    } catch {
+      // Embedder or other initialization failure — non-fatal for hook output
     }
-
-    // --- SECTION 6: Cross-project insights ---
-    const budgetForCrossProject: string[] = [];
-    if (currentProject) {
-      const crossProject = index.list({ days: 7 })
-        .filter(e =>
-          e.project !== null &&
-          e.project !== currentProject &&
-          e.type !== "handoff" &&
-          e.type !== "git_commit" &&
-          e.tier !== "ephemeral"
-        )
-        .slice(0, 3);
-
-      if (crossProject.length > 0) {
-        budgetForCrossProject.push("## From other projects");
-        for (const entry of crossProject) {
-          budgetForCrossProject.push(`- [${entry.project}] ${entry.content.slice(0, 120)}`);
-        }
-        budgetForCrossProject.push("");
-      }
-    }
-
-    // --- SECTION 7: Maintenance (only if something happened) ---
-    const budgetForMaint: string[] = [];
-    const maintTotal = maintenance.decayed + maintenance.demoted + maintenance.promotedStable + maintenance.promotedFrequent + maintenance.consolidated;
-    if (maintTotal > 0) {
-      const parts: string[] = [];
-      if (maintenance.decayed > 0) parts.push(`${maintenance.decayed} archived`);
-      if (maintenance.demoted > 0) parts.push(`${maintenance.demoted} demoted`);
-      if (maintenance.promotedStable > 0) parts.push(`${maintenance.promotedStable} promoted`);
-      if (maintenance.promotedFrequent > 0) parts.push(`${maintenance.promotedFrequent} promoted`);
-      if (maintenance.consolidated > 0) parts.push(`${maintenance.consolidated} consolidated`);
-      budgetForMaint.push(`_Maintenance: ${parts.join(", ")}._`);
-    }
-
-    // --- Assemble within budget ---
-    const sections = [budgetForPending, budgetForContext, budgetForHandoff, budgetForPatterns, budgetForFocus, budgetForCrossProject, budgetForMaint];
-    for (const section of sections) {
-      const sectionText = section.join("\n");
-      if (charCount + sectionText.length <= TOKEN_BUDGET_CHARS) {
-        lines.push(...section);
-        charCount += sectionText.length;
-      }
-    }
-
-    // Always append entry count (tiny)
-    const stats = index.status();
-    const syncNote = syncPulled > 0 ? ` | ${syncPulled} synced from other machines` : "";
-    lines.push(`\n_${stats.totalEntries} total entries in context store.${syncNote}_`);
-
-    if (lines.length <= 1) return; // Nothing to inject
-
-    process.stdout.write(lines.join("\n"));
   } finally {
     index.close();
   }
 }
 
+function buildContextLines(
+  index: ContextIndex,
+  currentProject: string | null,
+  maintenance: ReturnType<typeof runMaintenance>
+): string[] {
+  const lines: string[] = [];
+  let charCount = 0;
+
+  // --- SECTION 0: Recent rule violations (always shown, never truncated) ---
+  const recentViolations = index.list({ days: 7 })
+    .filter(e => e.tags.includes("rule-violation") && !e.archived);
+
+  if (recentViolations.length > 0) {
+    lines.push("# \u26a0 RECENT RULE VIOLATIONS \u2014 you broke these rules recently, be extra careful:");
+    for (const v of recentViolations.slice(0, 3)) {
+      const ruleTag = v.tags.find(t => t.startsWith("rule:"));
+      const ruleLabel = ruleTag ? ruleTag.replace("rule:", "") : "unknown";
+      const daysAgo = Math.floor((Date.now() - new Date(v.date).getTime()) / (1000 * 60 * 60 * 24));
+      const when = daysAgo === 0 ? "today" : `${daysAgo}d ago`;
+      lines.push(`- Rule "${ruleLabel}": ${v.content.split(".")[0]} (${when})`);
+    }
+    lines.push("");
+  }
+
+  // --- SECTION 1: Rules (always full, never truncated) ---
+  const rules = index.listRules();
+  if (rules.length > 0) {
+    lines.push("# Rules (ALWAYS follow, NO exceptions)");
+    for (const rule of rules) {
+      lines.push(`- ${rule.content}`);
+    }
+    lines.push("");
+  }
+  charCount = lines.join("\n").length;
+
+  // --- SECTION 1b: Pending rules for approval (high priority, right after rules) ---
+  const budgetForPending: string[] = [];
+  const pendingRules = index.list({ days: 7 })
+    .filter(e => e.tags.includes("pending_rule") && !e.archived);
+
+  if (pendingRules.length > 0) {
+    budgetForPending.push("## Pending rules (approve or dismiss)");
+    for (const pr of pendingRules.slice(0, 3)) {
+      const labelTag = pr.tags.find(t => t.startsWith("proposed-label:"));
+      const label = labelTag ? labelTag.replace("proposed-label:", "") : "unnamed";
+      budgetForPending.push(`- "${label}": ${pr.content.slice(0, 100)}`);
+    }
+    budgetForPending.push("_Ask user to accept (context_save_rule) or dismiss (context_archive)._");
+    budgetForPending.push("");
+  }
+
+  // Rule conflicts
+  const conflicts = index.list({ days: 7 })
+    .filter(e => e.tags.includes("rule_conflict") && !e.archived);
+
+  if (conflicts.length > 0) {
+    if (budgetForPending.length === 0) {
+      budgetForPending.push("## Pending rules (approve or dismiss)");
+    }
+    for (const c of conflicts.slice(0, 2)) {
+      budgetForPending.push(`- CONFLICT: ${c.content.slice(0, 120)}`);
+    }
+    if (budgetForPending[budgetForPending.length - 1] !== "") {
+      budgetForPending.push("");
+    }
+  }
+
+  // --- SECTION 2: Recent context (last 3 days, compact, project-boosted) ---
+  const budgetForContext: string[] = [];
+  const recent = index.list({ days: 3 })
+    .filter(e => e.tier !== "ephemeral" && e.type !== "handoff" && e.type !== "rule")
+    .sort((a, b) => {
+      // Same project first
+      const aMatch = a.project === currentProject ? 1 : 0;
+      const bMatch = b.project === currentProject ? 1 : 0;
+      if (aMatch !== bMatch) return bMatch - aMatch;
+      // Then by date/time desc
+      return 0; // already sorted by date desc from list()
+    });
+  if (recent.length > 0) {
+    budgetForContext.push("## Recent Context (last 3 days)");
+    let currentDate = "";
+    for (const entry of recent.slice(0, 15)) {
+      if (entry.date !== currentDate) {
+        currentDate = entry.date;
+        budgetForContext.push(`\n### ${currentDate.slice(5)}`);
+      }
+      budgetForContext.push(`- ${entry.time} [${entry.type}] ${entry.content}`);
+    }
+    budgetForContext.push("");
+  }
+
+  // --- SECTION 3: Recent handoff (1 only) ---
+  const budgetForHandoff: string[] = [];
+  const handoffs = index.list({ days: 7, type: "handoff" }).slice(0, 1);
+  if (handoffs.length > 0) {
+    const h = handoffs[0];
+    budgetForHandoff.push("## Recent Handoff");
+    budgetForHandoff.push(`- ${h.date.slice(5)} ${h.time}: ${h.content}`);
+    budgetForHandoff.push("");
+  }
+
+  // --- SECTION 4: Recurring patterns ---
+  const budgetForPatterns: string[] = [];
+  const patterns = index.getActivePatterns();
+  if (patterns.length > 0) {
+    budgetForPatterns.push("## Recurring Issues");
+    for (const p of patterns) {
+      const isFailure = p.label.startsWith("Pre-commit failure");
+      if (isFailure) {
+        const allEntries = index.list({ days: 30 });
+        const fileTags = p.entryIds
+          .flatMap(id => {
+            const entry = allEntries.find(e => e.id === id);
+            return entry ? entry.tags.filter(t => t.startsWith("file:")) : [];
+          })
+          .map(t => t.replace("file:", ""));
+        const uniqueFiles = [...new Set(fileTags)].slice(0, 3);
+        const fileStr = uniqueFiles.length > 0 ? ` (${uniqueFiles.join(", ")})` : "";
+        budgetForPatterns.push(`- pre-commit failure${fileStr} \u2014 ${p.occurrenceCount}x (last: ${p.lastSeen.slice(5)})`);
+      } else {
+        budgetForPatterns.push(`- "${p.label}" \u2014 ${p.occurrenceCount}x (last: ${p.lastSeen.slice(5)})`);
+      }
+    }
+    budgetForPatterns.push("");
+  }
+
+  // --- SECTION 5: Predicted focus ---
+  const budgetForFocus: string[] = [];
+  const cwd = process.cwd();
+  if (isGitRepo(cwd)) {
+    try {
+      const branch = getCurrentBranch(cwd);
+      const recentFiles = getRecentlyChangedFiles(cwd);
+
+      // Build focus query from branch + files + last handoff
+      const queryParts: string[] = [];
+      if (branch && branch !== "main" && branch !== "master") {
+        // Branch name often contains feature context: feature/auth-rework -> auth rework
+        queryParts.push(branch.replace(/[\/\-_]/g, " "));
+      }
+      if (recentFiles.length > 0) {
+        queryParts.push(recentFiles.slice(0, 5).join(" "));
+      }
+      // Include last handoff learnings for continuity
+      const focusHandoffs = index.list({ days: 7, type: "handoff" }).slice(0, 1);
+      if (focusHandoffs.length > 0) {
+        const handoffContent = focusHandoffs[0].content.slice(0, 200);
+        queryParts.push(handoffContent);
+      }
+
+      if (queryParts.length > 0) {
+        const focusQuery = queryParts.join(" ");
+        const focusResults = index.search(focusQuery, { limit: 3 })
+          .filter(e => e.type !== "handoff" && e.type !== "git_commit");
+
+        if (focusResults.length > 0) {
+          const fileCount = recentFiles.length;
+          const branchStr = branch ? `Branch: ${branch}` : "No branch";
+          const filesStr = fileCount > 0 ? ` | ${fileCount} uncommitted file${fileCount === 1 ? "" : "s"}` : "";
+
+          budgetForFocus.push("## Predicted focus");
+          budgetForFocus.push(`${branchStr}${filesStr}`);
+          for (const r of focusResults) {
+            const ago = Math.floor((Date.now() - new Date(r.date).getTime()) / (1000 * 60 * 60 * 24));
+            budgetForFocus.push(`- [${ago}d ago] ${r.type}: ${r.content.slice(0, 120)}`);
+          }
+          budgetForFocus.push("");
+        }
+      }
+
+      // Co-change suggestions (fold into focus section)
+      if (currentProject && recentFiles.length > 0) {
+        const suggestions: string[] = [];
+        for (const file of recentFiles.slice(0, 5)) {
+          const cochanges = index.getCoChanges(currentProject, file, 3)
+            .filter(c => c.count >= 3 && !recentFiles.includes(c.file));
+          if (cochanges.length > 0) {
+            const pairs = cochanges.map(c => `${c.file} (${c.count}x)`).join(", ");
+            suggestions.push(`- ${file} \u2192 usually also changes: ${pairs}`);
+          }
+        }
+        if (suggestions.length > 0) {
+          if (budgetForFocus.length === 0) {
+            budgetForFocus.push("## Predicted focus");
+          }
+          budgetForFocus.push(...suggestions);
+          budgetForFocus.push("");
+        }
+      }
+    } catch {
+      // Don't block session start
+    }
+  }
+
+  // --- SECTION 6: Cross-project insights ---
+  const budgetForCrossProject: string[] = [];
+  if (currentProject) {
+    const crossProject = index.list({ days: 7 })
+      .filter(e =>
+        e.project !== null &&
+        e.project !== currentProject &&
+        e.type !== "handoff" &&
+        e.type !== "git_commit" &&
+        e.tier !== "ephemeral"
+      )
+      .slice(0, 3);
+
+    if (crossProject.length > 0) {
+      budgetForCrossProject.push("## From other projects");
+      for (const entry of crossProject) {
+        budgetForCrossProject.push(`- [${entry.project}] ${entry.content.slice(0, 120)}`);
+      }
+      budgetForCrossProject.push("");
+    }
+  }
+
+  // --- SECTION 7: Maintenance (only if something happened) ---
+  const budgetForMaint: string[] = [];
+  const maintTotal = maintenance.decayed + maintenance.demoted + maintenance.promotedStable + maintenance.promotedFrequent + maintenance.consolidated;
+  if (maintTotal > 0) {
+    const parts: string[] = [];
+    if (maintenance.decayed > 0) parts.push(`${maintenance.decayed} archived`);
+    if (maintenance.demoted > 0) parts.push(`${maintenance.demoted} demoted`);
+    if (maintenance.promotedStable > 0) parts.push(`${maintenance.promotedStable} promoted`);
+    if (maintenance.promotedFrequent > 0) parts.push(`${maintenance.promotedFrequent} promoted`);
+    if (maintenance.consolidated > 0) parts.push(`${maintenance.consolidated} consolidated`);
+    budgetForMaint.push(`_Maintenance: ${parts.join(", ")}._`);
+  }
+
+  // --- Assemble within budget ---
+  const sections = [budgetForPending, budgetForContext, budgetForHandoff, budgetForPatterns, budgetForFocus, budgetForCrossProject, budgetForMaint];
+  for (const section of sections) {
+    const sectionText = section.join("\n");
+    if (charCount + sectionText.length <= TOKEN_BUDGET_CHARS) {
+      lines.push(...section);
+      charCount += sectionText.length;
+    }
+  }
+
+  // Always append entry count (tiny)
+  const stats = index.status();
+  lines.push(`\n_${stats.totalEntries} total entries in context store._`);
+
+  return lines;
+}
+
 main().catch((err) => {
   process.stderr.write(`session-start hook error: ${err}\n`);
-  process.exit(0);
+  process.exit(1);
 });

@@ -38,13 +38,17 @@ export class ContextIndex {
   constructor(dbPath: string = DB_PATH) {
     ensureDirs();
     this.db = new DatabaseSync(dbPath, { allowExtension: true });
-    sqliteVec.load(this.db);
+    try {
+      sqliteVec.load(this.db);
+    } catch (err) {
+      throw new Error(`sqlite-vec failed to load (native binding issue): ${err}`);
+    }
     this.init();
   }
 
   private init(): void {
     this.db.exec("PRAGMA journal_mode=WAL");
-    this.db.exec("PRAGMA busy_timeout=5000");
+    this.db.exec("PRAGMA busy_timeout=15000");
 
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS entries (
