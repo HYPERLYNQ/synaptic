@@ -1,9 +1,17 @@
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { createServer, getEmbedder } from "./server.js";
+import { createServer, getEmbedder, startBackgroundServices } from "./server.js";
 
-const server = createServer();
-const transport = new StdioServerTransport();
-await server.connect(transport);
+try {
+  const server = createServer();
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
 
-// Pre-warm embedder in background (don't block tool registration)
-getEmbedder().warmup().catch(() => {});
+  // Start background services AFTER MCP handshake completes
+  startBackgroundServices();
+
+  // Pre-warm embedder in background (don't block tool calls)
+  getEmbedder().warmup().catch(() => {});
+} catch (err) {
+  process.stderr.write(`[synaptic] Fatal startup error: ${err}\n`);
+  process.exit(1);
+}
