@@ -6,9 +6,10 @@
  * Embeddings are NOT synced — regenerated locally on pull.
  */
 
-import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, unlinkSync } from "node:fs";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { tmpdir } from "node:os";
 import { SYNC_STATE_PATH, SYNC_DIR } from "./paths.js";
 import type { ContextIndex } from "./sqlite.js";
 import type { Embedder } from "./embedder.js";
@@ -144,16 +145,23 @@ export async function pushEntries(
     } catch { return false; }
   });
 
-  if (deduped.length === 0) {
+  // If no new entries but local cache exists and was never pushed, force-upload
+  const needsForceUpload = deduped.length === 0 && existingContent && !state.lastPushAt;
+
+  if (deduped.length === 0 && !needsForceUpload) {
     return { pushed: 0 };
   }
 
-  const updatedContent = existingContent + deduped.join("\n") + "\n";
+  const updatedContent = deduped.length > 0
+    ? existingContent + deduped.join("\n") + "\n"
+    : existingContent;
 
-  // Write local cache
-  writeFileSync(localCache, updatedContent, "utf-8");
+  // Write local cache (only if there are new entries to append)
+  if (deduped.length > 0) {
+    writeFileSync(localCache, updatedContent, "utf-8");
+  }
 
-  // Upload to GitHub
+  // Upload to GitHub via temp file (avoids E2BIG for large payloads)
   const contentB64 = Buffer.from(updatedContent).toString("base64");
 
   // Get current file SHA (if exists) for update
@@ -174,19 +182,24 @@ export async function pushEntries(
   };
   if (sha) body.sha = sha;
 
-  await execGh([
-    "api", `repos/${repoSlug(state)}/contents/${remotePath}`,
-    "-X", "PUT",
-    "-f", `message=${body.message}`,
-    "-f", `content=${body.content}`,
-    ...(sha ? ["-f", `sha=${sha}`] : []),
-  ]);
+  // Write JSON body to temp file to avoid arg length limits
+  const tmpFile = join(tmpdir(), `synaptic-sync-${Date.now()}.json`);
+  writeFileSync(tmpFile, JSON.stringify(body), "utf-8");
+  try {
+    await execGh([
+      "api", `repos/${repoSlug(state)}/contents/${remotePath}`,
+      "-X", "PUT",
+      "--input", tmpFile,
+    ]);
+  } finally {
+    try { unlinkSync(tmpFile); } catch { /* cleanup best-effort */ }
+  }
 
   // Update state
   state.lastPushAt = new Date().toISOString();
   writeSyncState(state);
 
-  return { pushed: deduped.length };
+  return { pushed: deduped.length || (needsForceUpload ? existingIds.size : 0) };
 }
 
 // --- Pull ---
