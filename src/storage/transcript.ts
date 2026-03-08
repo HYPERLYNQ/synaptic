@@ -295,3 +295,101 @@ export function readNewMessages(
 
   return { messages, newOffset };
 }
+
+export interface ToolResultEntry {
+  toolName: string;
+  content: string;
+  lineIndex: number;
+}
+
+/**
+ * Read tool_result blocks from user messages in a JSONL transcript file.
+ * Extracts text content from tool results (handles both string and text-block arrays).
+ * Skips results shorter than 30 chars and caps individual results at 3000 chars.
+ */
+export function readToolResults(
+  filePath: string,
+  byteOffset: number
+): { results: ToolResultEntry[]; newOffset: number } {
+  const results: ToolResultEntry[] = [];
+
+  let buf: Buffer;
+  let fileSize: number;
+  try {
+    const fd = openSync(filePath, "r");
+    try {
+      fileSize = fstatSync(fd).size;
+      if (byteOffset >= fileSize) {
+        return { results, newOffset: fileSize };
+      }
+      const readLength = Math.min(fileSize - byteOffset, MAX_TRANSCRIPT_BYTES);
+      buf = Buffer.alloc(readLength);
+      readSync(fd, buf, 0, readLength, byteOffset);
+    } finally {
+      closeSync(fd);
+    }
+  } catch {
+    return { results, newOffset: byteOffset };
+  }
+
+  const chunk = buf.toString("utf-8");
+  const newOffset = Math.min(byteOffset + buf.length, fileSize);
+  const lines = chunk.split("\n");
+
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
+    if (!trimmed) continue;
+
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(trimmed);
+    } catch {
+      continue;
+    }
+
+    if (parsed.type !== "user") continue;
+
+    const message = parsed.message as Record<string, unknown> | undefined;
+    if (!message) continue;
+    const content = message.content;
+    if (!Array.isArray(content)) continue;
+
+    for (const block of content) {
+      if (typeof block !== "object" || block === null) continue;
+      const b = block as Record<string, unknown>;
+      if (b.type !== "tool_result") continue;
+
+      const toolName = typeof b.tool_use_id === "string" ? (b.name as string ?? b.tool_use_id) : "unknown";
+
+      // Extract text from tool_result content (string or text-block array)
+      let text: string | null = null;
+      const resultContent = b.content;
+      if (typeof resultContent === "string") {
+        text = resultContent.trim();
+      } else if (Array.isArray(resultContent)) {
+        const parts: string[] = [];
+        for (const inner of resultContent) {
+          if (typeof inner === "object" && inner !== null) {
+            const ib = inner as Record<string, unknown>;
+            if (ib.type === "text" && typeof ib.text === "string") {
+              const t = ib.text.trim();
+              if (t) parts.push(t);
+            }
+          }
+        }
+        text = parts.length > 0 ? parts.join("\n") : null;
+      }
+
+      if (!text || text.length < 30) continue;
+      if (text.length > 3000) text = text.slice(0, 3000);
+
+      results.push({
+        toolName: typeof toolName === "string" ? toolName : "unknown",
+        content: text,
+        lineIndex: i,
+      });
+    }
+  }
+
+  return { results, newOffset };
+}
