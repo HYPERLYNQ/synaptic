@@ -13,7 +13,8 @@
 
 **Claude forgets everything between sessions. Synaptic fixes that.**
 
-[![Version](https://img.shields.io/badge/version-0.9.4-blue)](https://github.com/HYPERLYNQ/synaptic/releases)
+[![Version](https://img.shields.io/badge/version-0.9.7-blue)](https://github.com/HYPERLYNQ/synaptic/releases)
+[![npm](https://img.shields.io/npm/v/@hyperlynq/synaptic)](https://www.npmjs.com/package/@hyperlynq/synaptic)
 [![Tests](https://img.shields.io/badge/tests-175%20passing-brightgreen)](https://github.com/HYPERLYNQ/synaptic)
 [![Node](https://img.shields.io/badge/node-22%2B-339933)](https://nodejs.org)
 [![License](https://img.shields.io/badge/license-source--available-orange)](LICENSE)
@@ -75,6 +76,7 @@ Claude's auto-memory (`~/.claude/memory/`) saves short notes to files. But there
 | Memory cleanup | Manual | Grows forever | Auto-decay by tier |
 | Pattern detection | None | None | Tracks recurring failures |
 | Auto-capture | None | None | Semantic anchors capture preferences, decisions, debugging patterns |
+| Fact extraction | None | None | Structural parsing + LLM synthesis of tool output |
 | Rule enforcement | None | None | Hard (commit-msg hook) + soft (violation detection) |
 | Transcript scanning | None | None | Passively captures from conversation history |
 | Predictive context | None | None | Surfaces relevant history at session start |
@@ -339,6 +341,28 @@ Synaptic doesn't just store what Claude explicitly saves — it **captures what 
 
 <br>
 
+### Hybrid Fact Extraction
+
+The transcript scanner can't reason about raw tool output — database query results, error traces, CLI output. Synaptic solves this with a **3-layer extraction pipeline** that runs automatically at the end of every session:
+
+**Layer 1: Structural Parsing** — Pattern-matches known output shapes from tool results with zero dependencies. Detects Python dicts (model fields), SQL table schemas, AttributeError/KeyError messages, route/auth patterns, environment variables, and Docker commands. Runs instantly on every session.
+
+**Layer 2: Semantic Classification** — The existing anchor template system with dedicated `discovery` and `credentials` categories that catch schema revelations and credential references in conversation.
+
+**Layer 3: LLM Synthesis** — Sends Layer 1 snippets to Claude Haiku for intelligent fact extraction. Produces structured facts categorized as `schema`, `credentials`, `route`, `config`, `architecture`, or `behavior`. Saved as longterm reference entries with vector deduplication.
+
+Facts like *"User model has `name` not `username`"* or *"seed user is demo@example.com"* that would otherwise be lost between sessions are now captured automatically.
+
+**Security hardened:**
+- Credential values are redacted before leaving your machine (env vars, Docker `-e` flags, Dockerfile `ENV`/`ARG` instructions, Python dict values)
+- LLM prompt explicitly instructs never to include actual credential values
+- Tool output is wrapped in XML delimiters with content escaping to mitigate prompt injection
+- OAuth tokens use proper `Authorization: Bearer` headers
+
+**Zero configuration** — uses your existing Claude Code subscription (OAuth token from `~/.claude/.credentials.json`). Falls back gracefully if no token is available. Costs ~$0.001 per session via Haiku.
+
+<br>
+
 ### Watch Mode
 
 A background watcher observes your `.git/` directory for branch switches and new commits. Changes are auto-indexed after a 2-second debounce. Starts and stops with the MCP server — nothing extra to manage.
@@ -377,21 +401,23 @@ Synaptic runs as an **MCP server** — the standard way to extend Claude with ne
 Three hooks handle the lifecycle automatically:
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                                                     │
-│   START ──→  Injects rules, violation warnings,      │
-│              predicted focus, recent context          │
-│                                                     │
-│   WORK ───→  Claude saves and searches context      │
-│              Git watcher auto-indexes in background  │
-│                                                     │
-│   COMPRESS →  Preserves important context before     │
-│               conversation is compressed             │
-│                                                     │
-│   END ────→  Semantic transcript scan, directive detection, │
-│              debugging patterns, handoff, rule checks      │
-│                                                     │
-└─────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│                                                              │
+│   START ────→  Injects rules, violation warnings,            │
+│                predicted focus, recent context                │
+│                                                              │
+│   WORK ─────→  Claude saves and searches context             │
+│                Git watcher auto-indexes in background         │
+│                                                              │
+│   COMPRESS ─→  Preserves important context before            │
+│                conversation is compressed                     │
+│                                                              │
+│   END ──────→  Semantic transcript scan                      │
+│                Hybrid extraction (structural → LLM)          │
+│                Directive detection, debugging patterns        │
+│                Handoff summary, rule violation checks         │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
 ```
 
 Data is stored in SQLite with full-text search and vector similarity search. All local.
