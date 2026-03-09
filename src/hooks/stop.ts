@@ -23,7 +23,10 @@ import {
   writeCursor,
   readNewMessages,
   readToolUseActions,
+  readToolResults,
 } from "../storage/transcript.js";
+import { extractStructuredSnippets } from "../extraction/structural.js";
+import { extractWithLLM } from "../extraction/llm-extract.js";
 import { extractCheckPatterns, checkMessageAgainstPatterns } from "../cli/rule-patterns.js";
 import { isSyncEnabled, readSyncState, pushEntries } from "../storage/sync.js";
 import { scoreSignals } from "../storage/signals.js";
@@ -301,6 +304,50 @@ async function main(): Promise<void> {
       // Don't fail the hook if transcript scanning errors
     }
 
+    // === Hybrid extraction: structural parsing + LLM synthesis ===
+    try {
+      const transcriptFile = findCurrentTranscript();
+      if (transcriptFile) {
+        const cursor = readCursor();
+        // Read tool results from recent transcript (look back up to 500KB for context)
+        const toolOffset = (cursor && cursor.file === transcriptFile) ? Math.max(0, cursor.offset - 500000) : 0;
+        const { results: toolResults } = readToolResults(transcriptFile, toolOffset);
+
+        if (toolResults.length > 0) {
+          // Layer 1: structural pattern matching
+          const snippets = extractStructuredSnippets(toolResults);
+
+          if (snippets.length > 0) {
+            // Layer 3: LLM synthesis (skips gracefully if no API token)
+            const { messages } = readNewMessages(transcriptFile, toolOffset);
+            const projectName = detectProject() ?? null;
+            const facts = await extractWithLLM(snippets, messages, projectName);
+
+            // Save extracted facts with vector dedup
+            for (const fact of facts.slice(0, 5)) {
+              const factContent = fact.content;
+              const factEmb = await embedder.embed(factContent);
+
+              // Dedup: skip if very similar entry already exists
+              const similar = index.searchVec(factEmb, 1);
+              if (similar.length > 0 && similar[0].distance < 0.20) continue;
+
+              const entry = appendEntry(factContent, "reference", [
+                "llm-extracted",
+                `category:${fact.category}`,
+                ...(projectName ? [projectName] : []),
+              ]);
+              entry.tier = "longterm";
+              const rowid = enrichInsert(entry);
+              index.insertVec(rowid, factEmb);
+            }
+          }
+        }
+      }
+    } catch {
+      // Don't fail the hook if extraction errors
+    }
+
     // Rule violation detection (soft enforcement)
     try {
       checkRuleViolations(index, enrichInsert);
@@ -314,7 +361,15 @@ async function main(): Promise<void> {
     }
 
     // Check if there's been meaningful activity today
-    const todayEntries = index.list({ days: 1 });
+    // IMPORTANT: Exclude handoffs and their derivatives to prevent recursive nesting.
+    // Previous handoffs contain "Activity: N entries..." which, if included, get
+    // summarized into the next handoff, creating infinite recursion.
+    const todayEntriesRaw = index.list({ days: 1 });
+    const todayEntries = todayEntriesRaw.filter(e =>
+      e.type !== "handoff" &&
+      !e.content.startsWith("Activity:") &&
+      !e.content.startsWith("Context compaction triggered")
+    );
     if (todayEntries.length === 0) {
       return; // No activity to create a handoff for
     }
@@ -327,11 +382,23 @@ async function main(): Promise<void> {
       entry.tags.forEach((t) => tags.add(t));
     }
 
-    const tagList = Array.from(tags);
+    // Filter out meta-tags from handoff system
+    const filteredTags = Array.from(tags).filter(t =>
+      !t.startsWith("proposed-label:") &&
+      !t.startsWith("compaction-snapshot") &&
+      t !== "transcript-scan" &&
+      t !== "pending_rule"
+    );
+    const tagList = filteredTags;
 
     // Collect real-time insight saves from today (the primary distillation source)
+    // Exclude transcript-scan auto-captures and pending_rule entries — only human-triggered saves
     const todayInsights = todayEntries
-      .filter(e => e.type === "insight")
+      .filter(e =>
+        e.type === "insight" &&
+        !e.tags.includes("pending_rule") &&
+        !e.content.startsWith("Activity:")
+      )
       .slice(0, 5);
 
     const contentParts: string[] = [];
@@ -533,7 +600,9 @@ async function main(): Promise<void> {
 
     const content = contentParts.join("\n");
 
-    const entry = appendEntry(content, "handoff", tagList);
+    // Cap tags to prevent bloat — keep only the most relevant project/topic tags
+    const cappedTags = tagList.slice(0, 15);
+    const entry = appendEntry(content, "handoff", cappedTags);
     entry.tier = ContextIndex.assignTier(entry.type);
     const rowid = enrichInsert(entry);
     const embedding = await embedder.embed(entry.content);
