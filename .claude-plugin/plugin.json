@@ -1,0 +1,21 @@
+{
+  "name": "synaptic",
+  "description": "Persistent local memory for Claude Code — cross-session context, semantic search, zero cloud",
+  "version": "0.9.6",
+  "author": {
+    "name": "HYPERLYNQ",
+    "email": "hyperlynq@gmail.com"
+  },
+  "homepage": "https://github.com/HYPERLYNQ/synaptic",
+  "repository": "https://github.com/HYPERLYNQ/synaptic",
+  "license": "SEE LICENSE IN LICENSE",
+  "keywords": [
+    "memory",
+    "context",
+    "mcp",
+    "persistent-memory",
+    "semantic-search",
+    "claude-code",
+    "model-context-protocol"
+  ]
+}
