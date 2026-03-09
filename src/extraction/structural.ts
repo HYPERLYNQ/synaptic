@@ -25,24 +25,26 @@ export interface ExtractionSnippet {
  */
 function matchPythonDicts(text: string): ExtractionSnippet[] {
   const snippets: ExtractionSnippet[] = [];
-  // Match Python dict-like structures: { 'key': value, ... }
-  const dictRegex = /\{[^{}]*'[^']+'\s*:[^{}]*\}/g;
+  // Match Python dict-like structures: { 'key': value, ... } or { "key": value, ... }
+  const dictRegex = /\{[^{}]*(?:'[^']+'\s*:|"[^"]+"\s*:)[^{}]*\}/g;
   let match: RegExpExecArray | null;
 
   while ((match = dictRegex.exec(text)) !== null) {
     const raw = match[0];
-    // Extract single-quoted keys
-    const keyRegex = /'([^']+)'\s*:/g;
+    // Extract single-quoted or double-quoted keys
+    const keyRegex = /(?:'([^']+)'|"([^"]+)")\s*:/g;
     const keys: string[] = [];
     let keyMatch: RegExpExecArray | null;
     while ((keyMatch = keyRegex.exec(raw)) !== null) {
-      keys.push(keyMatch[1]);
+      keys.push(keyMatch[1] ?? keyMatch[2]);
     }
     if (keys.length < 3) continue;
 
+    // SECURITY: Don't include full dict in raw (values may contain secrets).
+    // Only pass the key structure to avoid leaking credential values.
     snippets.push({
       pattern: "python_dict",
-      raw,
+      raw: `{${keys.map(k => `'${k}': ...`).join(", ")}}`,
       summary: `Python dict with fields: ${keys.join(", ")}`,
     });
   }
@@ -57,7 +59,7 @@ function matchPythonDicts(text: string): ExtractionSnippet[] {
 function matchSqlSelects(text: string): ExtractionSnippet[] {
   const snippets: ExtractionSnippet[] = [];
   const sqlRegex =
-    /SELECT\s+([\s\S]*?)\s+FROM\s+([a-zA-Z_][a-zA-Z0-9_.]*)/gi;
+    /SELECT\s+([^;]*?)\s+FROM\s+([a-zA-Z_][a-zA-Z0-9_.]*)/gi;
   let match: RegExpExecArray | null;
 
   while ((match = sqlRegex.exec(text)) !== null) {
@@ -139,11 +141,16 @@ function matchKeyErrors(text: string): ExtractionSnippet[] {
  */
 function matchRoutePatterns(text: string): ExtractionSnippet[] {
   const snippets: ExtractionSnippet[] = [];
+  const seen = new Set<string>();
   const routeRegex =
     /<ProtectedRoute|<AuthRoute|requireAuth|isAuthenticated|authMiddleware/g;
   let match: RegExpExecArray | null;
 
   while ((match = routeRegex.exec(text)) !== null) {
+    const key = match[0];
+    if (seen.has(key)) continue;
+    seen.add(key);
+
     const matchStart = match.index;
     const contextStart = Math.max(0, matchStart - 100);
     const contextEnd = Math.min(text.length, matchStart + match[0].length + 100);
@@ -152,7 +159,7 @@ function matchRoutePatterns(text: string): ExtractionSnippet[] {
     snippets.push({
       pattern: "route_pattern",
       raw,
-      summary: `Auth/route pattern: "${match[0]}" found in tool output`,
+      summary: `Auth/route pattern: "${key}" found in tool output`,
     });
   }
 
@@ -196,14 +203,15 @@ function matchEnvVars(text: string): ExtractionSnippet[] {
   }
 
   // .env file lines: KEY=value (at start of line)
-  const dotenvRegex = /^([A-Z_][A-Z0-9_]*)=(.*)$/gm;
+  // SECURITY: Only store key name, never the value (values may contain secrets)
+  const dotenvRegex = /^([A-Z_][A-Z0-9_]*)=.*$/gm;
   while ((match = dotenvRegex.exec(text)) !== null) {
     const varName = match[1];
     if (seen.has(varName)) continue;
     seen.add(varName);
     snippets.push({
       pattern: "env_var",
-      raw: match[0],
+      raw: `${varName}=<redacted>`,
       summary: `Environment variable: ${varName}`,
     });
   }
@@ -223,10 +231,17 @@ function matchDockerCommands(text: string): ExtractionSnippet[] {
     /(?:docker(?:-compose)?)\s+(?:run|build|up|down|exec|pull|push)\b[^\n]*/g;
   let match: RegExpExecArray | null;
   while ((match = dockerCmdRegex.exec(text)) !== null) {
+    // SECURITY: Redact -e / --env values which often contain secrets
+    // Handles: -e VAR=val, -e "VAR=val with spaces", --env VAR=val, --env="VAR=val"
+    let raw = match[0].trim();
+    raw = raw.replace(
+      /(?:-e|--env)[=\s]+(?:"([A-Za-z_][A-Za-z0-9_]*)=[^"]*"|'([A-Za-z_][A-Za-z0-9_]*)=[^']*'|([A-Za-z_][A-Za-z0-9_]*)=[^\s]*)/g,
+      (_m, dq, sq, bare) => `${dq ?? sq ?? bare}=<redacted>`,
+    );
     snippets.push({
       pattern: "docker_command",
-      raw: match[0].trim(),
-      summary: `Docker command: ${match[0].trim().slice(0, 120)}`,
+      raw,
+      summary: `Docker command: ${raw.slice(0, 120)}`,
     });
   }
 
@@ -234,10 +249,20 @@ function matchDockerCommands(text: string): ExtractionSnippet[] {
   const dockerfileRegex =
     /^(?:FROM|RUN|COPY|ADD|EXPOSE|CMD|ENTRYPOINT|WORKDIR|ENV|ARG|VOLUME)\s+[^\n]+/gm;
   while ((match = dockerfileRegex.exec(text)) !== null) {
+    let raw = match[0].trim();
+    // SECURITY: Redact values in ENV/ARG instructions (may contain secrets)
+    if (/^(?:ENV|ARG)\s/.test(raw)) {
+      // Handle KEY=value syntax (including quoted values with spaces)
+      raw = raw.replace(/([A-Za-z_][A-Za-z0-9_]*)=(?:"[^"]*"|'[^']*'|\S*)/g, "$1=<redacted>");
+      // Handle legacy space-separated syntax: ENV KEY value
+      if (!raw.includes("=")) {
+        raw = raw.replace(/^((?:ENV|ARG)\s+[A-Za-z_][A-Za-z0-9_]*)\s+\S.*/,  "$1 <redacted>");
+      }
+    }
     snippets.push({
       pattern: "docker_command",
-      raw: match[0].trim(),
-      summary: `Dockerfile instruction: ${match[0].trim().slice(0, 120)}`,
+      raw,
+      summary: `Dockerfile instruction: ${raw.slice(0, 120)}`,
     });
   }
 

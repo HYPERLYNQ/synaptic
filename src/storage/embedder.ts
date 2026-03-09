@@ -146,6 +146,8 @@ export class Embedder {
       { category: "correction", text: "A correction, complaint, or negative reaction — something is wrong, bad, or should be different" },
       { category: "standard", text: "A consistency requirement, convention, or pattern that should apply uniformly across a project" },
       { category: "debugging", text: "A debugging lesson learned from trial and error — what was tried, what failed, and what ultimately worked" },
+      { category: "discovery", text: "A technical discovery about a project's codebase — database schema, model structure, API routes, column names, configuration details, or how the code actually works versus what was expected" },
+      { category: "credentials", text: "Login credentials, API keys, seed data, test accounts, default passwords, or authentication details needed to access the project" },
     ];
 
     this.anchorTemplates = [];

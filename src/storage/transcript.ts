@@ -336,6 +336,29 @@ export function readToolResults(
   const newOffset = Math.min(byteOffset + buf.length, fileSize);
   const lines = chunk.split("\n");
 
+  // Build a map of tool_use_id → tool name from assistant messages
+  // so we can resolve names for tool_result blocks in user messages
+  const toolUseNames = new Map<string, string>();
+  for (const line of lines) {
+    const t = line.trim();
+    if (!t) continue;
+    let p: Record<string, unknown>;
+    try { p = JSON.parse(t); } catch { continue; }
+    if (p.type !== "assistant") continue;
+    const msg = p.message as Record<string, unknown> | undefined;
+    if (!msg) continue;
+    const c = msg.content;
+    if (!Array.isArray(c)) continue;
+    for (const block of c) {
+      if (typeof block === "object" && block !== null) {
+        const bl = block as Record<string, unknown>;
+        if (bl.type === "tool_use" && typeof bl.id === "string" && typeof bl.name === "string") {
+          toolUseNames.set(bl.id, bl.name);
+        }
+      }
+    }
+  }
+
   for (let i = 0; i < lines.length; i++) {
     const trimmed = lines[i].trim();
     if (!trimmed) continue;
@@ -359,7 +382,9 @@ export function readToolResults(
       const b = block as Record<string, unknown>;
       if (b.type !== "tool_result") continue;
 
-      const toolName = typeof b.tool_use_id === "string" ? (b.name as string ?? b.tool_use_id) : "unknown";
+      // Resolve tool name from the preceding tool_use block via tool_use_id
+      const toolUseId = typeof b.tool_use_id === "string" ? b.tool_use_id : "";
+      const toolName = toolUseNames.get(toolUseId) ?? "unknown";
 
       // Extract text from tool_result content (string or text-block array)
       let text: string | null = null;

@@ -66,9 +66,8 @@ async function scanTranscript(
 
   // 3. Read new messages (no cap — readNewMessages already caps at 10MB)
   const { messages, newOffset } = readNewMessages(transcriptFile, offset);
-  const capped = messages;
 
-  if (capped.length === 0) {
+  if (messages.length === 0) {
     writeCursor({ file: transcriptFile, offset: newOffset });
     return;
   }
@@ -77,7 +76,7 @@ async function scanTranscript(
   await embedder.getAnchorTemplates();
 
   // === Primary capture loop: semantics-first with signal boost ===
-  for (const msg of capped) {
+  for (const msg of messages) {
     // Skip very short messages (no semantic value)
     if (msg.text.length < 20) continue;
 
@@ -115,7 +114,7 @@ async function scanTranscript(
   }
 
   // === Real-time directive detection for user messages ===
-  for (const msg of capped) {
+  for (const msg of messages) {
     if (msg.role !== "user") continue;
     if (msg.text.length < 20) continue;
 
@@ -161,15 +160,15 @@ async function scanTranscript(
   const errorPatterns = /\b(error|failed|doesn't work|can't|couldn't|not working|undefined|ENOENT|EACCES|EPERM|exit code [1-9]|command not found|TypeError|ReferenceError|SyntaxError)\b/i;
   const resolutionPatterns = /\b(fix was|solution is|worked because|the issue was|root cause|that fixed|now works|resolved by|the problem was)\b/i;
 
-  for (let i = 0; i < capped.length; i++) {
-    const msg = capped[i];
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i];
     if (msg.role !== "assistant") continue;
     if (!resolutionPatterns.test(msg.text)) continue;
 
     // Found a resolution — look backwards for error context
     const errorContext: string[] = [];
     for (let j = Math.max(0, i - 8); j < i; j++) {
-      const prev = capped[j];
+      const prev = messages[j];
       if (errorPatterns.test(prev.text)) {
         const summary = prev.text.length > 200 ? prev.text.slice(0, 200) + "..." : prev.text;
         errorContext.push(`[${prev.role}] ${summary}`);
@@ -297,6 +296,13 @@ async function main(): Promise<void> {
   };
 
   try {
+    // Save pre-scan cursor offset BEFORE scanTranscript advances it.
+    // Hybrid extraction needs to read the same new content that scanTranscript processes.
+    const preScanTranscript = findCurrentTranscript();
+    const preScanCursor = readCursor();
+    const preScanOffset = (preScanCursor && preScanTranscript && preScanCursor.file === preScanTranscript)
+      ? preScanCursor.offset : 0;
+
     // Transcript scan runs on EVERY response (no debounce)
     try {
       await scanTranscript(index, embedder, enrichInsert);
@@ -306,16 +312,14 @@ async function main(): Promise<void> {
 
     // === Hybrid extraction: structural parsing + LLM synthesis ===
     try {
-      const transcriptFile = findCurrentTranscript();
+      const transcriptFile = preScanTranscript;
       if (transcriptFile) {
-        const cursor = readCursor();
-        // Read tool results from recent transcript (look back up to 500KB for context)
-        const toolOffset = (cursor && cursor.file === transcriptFile) ? Math.max(0, cursor.offset - 500000) : 0;
+        const toolOffset = preScanOffset;
         const { results: toolResults } = readToolResults(transcriptFile, toolOffset);
 
         if (toolResults.length > 0) {
-          // Layer 1: structural pattern matching
-          const snippets = extractStructuredSnippets(toolResults);
+          // Layer 1: structural pattern matching (cap input to prevent excessive processing)
+          const snippets = extractStructuredSnippets(toolResults.slice(0, 50));
 
           if (snippets.length > 0) {
             // Layer 3: LLM synthesis (skips gracefully if no API token)
@@ -328,9 +332,9 @@ async function main(): Promise<void> {
               const factContent = fact.content;
               const factEmb = await embedder.embed(factContent);
 
-              // Dedup: skip if very similar entry already exists
+              // Dedup: skip if very similar entry already exists (L2 distance < 0.40)
               const similar = index.searchVec(factEmb, 1);
-              if (similar.length > 0 && similar[0].distance < 0.20) continue;
+              if (similar.length > 0 && similar[0].distance < 0.40) continue;
 
               const entry = appendEntry(factContent, "reference", [
                 "llm-extracted",
@@ -344,8 +348,8 @@ async function main(): Promise<void> {
           }
         }
       }
-    } catch {
-      // Don't fail the hook if extraction errors
+    } catch (err) {
+      process.stderr.write(`hybrid-extraction error: ${err}\n`);
     }
 
     // Rule violation detection (soft enforcement)
