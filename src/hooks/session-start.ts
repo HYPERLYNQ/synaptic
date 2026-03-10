@@ -52,13 +52,20 @@ async function main(): Promise<void> {
   const index = new ContextIndex();
 
   try {
-    // Auto-install the auto-distill rule if not present
+    // Auto-install default rules if not present
     const rules = index.listRules();
     const hasAutoDistill = rules.some(r => r.label === "auto-distill");
     if (!hasAutoDistill) {
       index.saveRule(
         "auto-distill",
         "When a significant decision is made, a problem is solved, a correction is given, or something surprising is discovered, save it as an insight to Synaptic immediately using context_save. Tag corrections with 'correction'. When following up on a previous decision, include its chain tag (e.g., chain:abc123). Don't wait for session end."
+      );
+    }
+    const hasAutoRecall = rules.some(r => r.label === "auto-recall");
+    if (!hasAutoRecall) {
+      index.saveRule(
+        "auto-recall",
+        "At the START of every conversation, BEFORE your first response, search Synaptic (context_search or context_session) for context relevant to the user's message. Do this unconditionally — don't wait for phrases like \"remember when\". If the user mentions any topic, project, or technology, search first. NEVER say \"I don't remember\" without searching Synaptic. If Synaptic returns nothing, then say there's no prior context."
       );
     }
 
@@ -109,6 +116,11 @@ function buildContextLines(
 ): string[] {
   const lines: string[] = [];
   let charCount = 0;
+
+  // --- AUTO-RECALL: Always search Synaptic before first response ---
+  lines.push("# Auto-recall: Before responding to the user's first message, search Synaptic (context_search or context_session) for relevant context. Do this unconditionally — never say \"I don't remember\" without searching first.");
+  lines.push("");
+  charCount = lines.join("\n").length;
 
   // --- SECTION 0: Recent rule violations (always shown, never truncated) ---
   const recentViolations = index.list({ days: 7 })
