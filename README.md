@@ -327,6 +327,8 @@ Entries that get searched often survive longer automatically. Unused ephemeral e
 
 Synaptic doesn't just store what Claude explicitly saves — it **captures what Claude misses**.
 
+**Smart Auto-Recall** — At session start, Synaptic uses signal-based detection to decide whether to search your memory. When your message references a known project, implies continuity ("continue", "last time", "we were"), or asks about past decisions, it searches automatically. Generic standalone questions skip the search entirely. No wasted calls, no missed context.
+
 **Semantic Capture** — Every message in the conversation is embedded and classified against 6 semantic anchors (rules, preferences, recommendations, corrections, standards, debugging). Regex signal detection provides a confidence boost. This means natural language like "keep design consistent," "that looks terrible," or "I recommend Cloudflare" is captured automatically — no template matching required.
 
 **Directive Detection** — User messages that express rules or standards ("always use tabs," "never auto-commit") are automatically flagged as pending rule proposals when both semantic anchors and signal words agree. Deduplicated against existing rules.
@@ -403,8 +405,8 @@ Three hooks handle the lifecycle automatically:
 ```
 ┌──────────────────────────────────────────────────────────────┐
 │                                                              │
-│   START ────→  Injects rules, violation warnings,            │
-│                predicted focus, recent context                │
+│   START ────→  Smart auto-recall, rules, violation           │
+│                warnings, predicted focus, recent context      │
 │                                                              │
 │   WORK ─────→  Claude saves and searches context             │
 │                Git watcher auto-indexes in background         │
