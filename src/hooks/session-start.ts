@@ -65,7 +65,7 @@ async function main(): Promise<void> {
     if (!hasAutoRecall) {
       index.saveRule(
         "auto-recall",
-        "At the START of every conversation, BEFORE your first response, search Synaptic (context_search or context_session) for context relevant to the user's message. Do this unconditionally — don't wait for phrases like \"remember when\". If the user mentions any topic, project, or technology, search first. NEVER say \"I don't remember\" without searching Synaptic. If Synaptic returns nothing, then say there's no prior context."
+        "Search Synaptic (context_search or context_session) BEFORE your first response ONLY when signals suggest prior context exists. SEARCH when: user mentions a known project/tool/entity by name, uses continuity language (\"continue\", \"we were\", \"last time\", \"that bug\"), asks about past decisions (\"why did we\", \"what was the approach\"), or references something ambiguous that might have history. ALWAYS search before saying \"I don't know\" or \"I don't have context\" (safety net). SKIP when: generic standalone question, self-contained task with all context provided, or user is clearly starting fresh."
       );
     }
 
@@ -117,8 +117,8 @@ function buildContextLines(
   const lines: string[] = [];
   let charCount = 0;
 
-  // --- AUTO-RECALL: Always search Synaptic before first response ---
-  lines.push("# Auto-recall: Before responding to the user's first message, search Synaptic (context_search or context_session) for relevant context. Do this unconditionally — never say \"I don't remember\" without searching first.");
+  // --- AUTO-RECALL: Signal-based Synaptic search ---
+  lines.push("# Auto-recall: Search Synaptic when the user's message references a known project, implies continuity (\"continue\", \"last time\", \"we were\"), asks about past decisions, or mentions something that could have history. Skip for generic standalone questions or self-contained tasks. NEVER say \"I don't remember\" without searching first.");
   lines.push("");
   charCount = lines.join("\n").length;
 
