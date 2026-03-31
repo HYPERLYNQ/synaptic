@@ -244,6 +244,20 @@ function setupHooks(env: Environment): void {
     type: "stdio",
   };
 
+  // Register as a plugin source so the plugin system can find it
+  if (!settings.extraKnownMarketplaces || typeof settings.extraKnownMarketplaces !== "object") {
+    settings.extraKnownMarketplaces = {};
+  }
+  (settings.extraKnownMarketplaces as Record<string, unknown>).synaptic = {
+    source: { source: "directory", path: env.buildDir },
+  };
+
+  // Enable the synaptic plugin
+  if (!settings.enabledPlugins || typeof settings.enabledPlugins !== "object") {
+    settings.enabledPlugins = {};
+  }
+  (settings.enabledPlugins as Record<string, boolean>)["synaptic@synaptic"] = true;
+
   if (!settings.hooks || typeof settings.hooks !== "object") {
     settings.hooks = {};
   }
