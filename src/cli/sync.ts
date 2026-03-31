@@ -36,7 +36,9 @@ function parseFlag(args: string[], flag: string): string | undefined {
 
 export async function initSync(args: string[]): Promise<void> {
   // Check gh auth
-  const { execFileSync } = await import("node:child_process");
+  const { execFileSync, execFile: execFileCb } = await import("node:child_process");
+  const { promisify } = await import("node:util");
+  const execFileAsync = promisify(execFileCb);
   try {
     execFileSync("gh", ["auth", "status"], { timeout: 5000, stdio: "pipe" });
   } catch {
@@ -45,7 +47,7 @@ export async function initSync(args: string[]): Promise<void> {
   }
 
   const machineName = parseFlag(args, "--name") ?? hostname();
-  const repoName = parseFlag(args, "--repo") ?? "synaptic-sync";
+  let repoName = parseFlag(args, "--repo") ?? "synaptic-sync";
 
   // Check if already initialized
   const existing = readSyncState();
@@ -60,6 +62,21 @@ export async function initSync(args: string[]): Promise<void> {
   // Get GitHub username
   const owner = await getGhUsername();
   console.log(`GitHub user: ${owner}`);
+
+  // Auto-detect existing sync repo on GitHub if none specified
+  if (!parseFlag(args, "--repo")) {
+    try {
+      const { stdout } = await execFileAsync("gh", [
+        "repo", "view", `${owner}/synaptic-sync`, "--json", "name",
+      ], { timeout: 10000 });
+      if (stdout.includes("synaptic-sync")) {
+        console.log(`Found existing sync repo: ${owner}/synaptic-sync`);
+        repoName = "synaptic-sync";
+      }
+    } catch {
+      // No existing repo — will create one
+    }
+  }
 
   // Create or verify repo
   console.log(`Ensuring repo ${owner}/${repoName}...`);
