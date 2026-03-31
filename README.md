@@ -13,7 +13,7 @@
 
 **Claude forgets everything between sessions. Synaptic fixes that.**
 
-[![Version](https://img.shields.io/badge/version-0.9.9-blue)](https://github.com/HYPERLYNQ/synaptic/releases)
+[![Version](https://img.shields.io/badge/version-1.0.0-blue)](https://github.com/HYPERLYNQ/synaptic/releases)
 [![npm](https://img.shields.io/npm/v/@hyperlynq/synaptic)](https://www.npmjs.com/package/@hyperlynq/synaptic)
 [![Tests](https://img.shields.io/badge/tests-175%20passing-brightgreen)](https://github.com/HYPERLYNQ/synaptic)
 [![Node](https://img.shields.io/badge/node-22%2B-339933)](https://nodejs.org)
@@ -104,18 +104,29 @@ Claude's auto-memory (`~/.claude/memory/`) saves short notes to files. But there
 ### Install
 
 ```bash
-npx @hyperlynq/synaptic init
+npx @hyperlynq/synaptic
 ```
 
-That's it. The `init` command auto-detects your environment (Linux, macOS, WSL) and configures everything:
+That's it. One command, zero config. Synaptic auto-detects your environment (Linux, macOS, WSL) and sets up everything:
 
-- **MCP server** — so Claude can use Synaptic's tools
+- **MCP server** — registered in `~/.mcp.json` so Claude can use Synaptic's tools
 - **3 lifecycle hooks** — auto-load on start, preserve on compress, save on stop
-- **Git pre-commit hook** — captures test/lint failures into memory
-- **Git commit-msg hook** — blocks commits that violate your rules
-- **Project directory** — `.synaptic/` for local config
+- **Cross-machine sync** — prompted at the end of setup (requires [GitHub CLI](https://cli.github.com/))
 
-> Skip git hook and project dir with `npx synaptic init --global`
+```
+  Setting up Synaptic...
+
+  [1/2] Registering MCP server...      done
+  [2/2] Installing lifecycle hooks...   done
+
+  Setup complete. Restart Claude Code to activate.
+
+  Enable cross-machine sync? (requires GitHub CLI) [y/N]
+```
+
+Restart Claude Code after setup. The `mcp__synaptic__context_*` tools will be available immediately.
+
+> **Project-level setup** — Run `npx @hyperlynq/synaptic init` (without `--global`) inside a git repo to also install pre-commit and commit-msg hooks.
 
 <br>
 
@@ -129,7 +140,7 @@ git clone https://github.com/HYPERLYNQ/synaptic.git
 cd synaptic
 npm install
 npm run build
-npx synaptic init
+node build/src/cli.js
 ```
 
 </details>
@@ -141,7 +152,7 @@ npx synaptic init
 
 <br>
 
-Add to `~/.claude/settings.json`:
+Add to `~/.mcp.json`:
 
 ```json
 {
@@ -373,7 +384,7 @@ A background watcher observes your `.git/` directory for branch switches and new
 
 ### Cross-Machine Sync
 
-Use Synaptic on multiple machines? Sync your context between them via a private GitHub repo.
+Use Synaptic on multiple machines? Sync is offered automatically during install. You can also manage it manually:
 
 ```bash
 synaptic sync init          # One-time setup — creates private repo, generates machine ID
