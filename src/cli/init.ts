@@ -34,7 +34,7 @@ export function detectEnvironment(): Environment {
     return {
       isWSL: true,
       settingsPath: join(winProfileWSL, ".claude", "settings.json"),
-      mcpJsonPath: join(winProfileWSL, ".mcp.json"),
+      mcpJsonPath: join(homedir(), ".mcp.json"),
       buildDir,
       nodeCommand: String.raw`C:\WINDOWS\system32\wsl.exe`,
       nodeArgs: ["node", "--no-warnings"],
@@ -139,6 +139,7 @@ function getWindowsUserProfile(): string {
     const raw = execSync("cmd.exe /C echo %USERPROFILE%", {
       encoding: "utf-8",
       timeout: 5000,
+      stdio: ["pipe", "pipe", "pipe"],
     }).trim();
     return raw;
   } catch (err) {
