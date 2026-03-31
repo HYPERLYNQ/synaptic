@@ -233,13 +233,16 @@ function setupSettingsLocal(env: Environment): void {
 function setupHooks(env: Environment): void {
   const settings = readJsonFile(env.settingsPath);
 
-  // Remove old MCP server from settings.json (now lives in ~/.mcp.json)
-  if (settings.mcpServers && typeof settings.mcpServers === "object") {
-    const mcpServers = settings.mcpServers as Record<string, unknown>;
-    if (mcpServers.synaptic) {
-      delete mcpServers.synaptic;
-    }
+  // Also register MCP server in settings.json for VS Code compatibility
+  if (!settings.mcpServers || typeof settings.mcpServers !== "object") {
+    settings.mcpServers = {};
   }
+  const indexPath = join(env.buildDir, "src", "index.js");
+  (settings.mcpServers as Record<string, unknown>).synaptic = {
+    command: env.nodeCommand,
+    args: [...env.nodeArgs, indexPath],
+    type: "stdio",
+  };
 
   if (!settings.hooks || typeof settings.hooks !== "object") {
     settings.hooks = {};
