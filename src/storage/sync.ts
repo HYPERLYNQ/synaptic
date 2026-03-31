@@ -214,11 +214,11 @@ export async function pullEntries(
   const machinesSeen: string[] = [];
 
   // List remote entry files
-  let remoteFiles: Array<{ name: string }>;
+  let remoteFiles: Array<{ name: string; sha: string }>;
   try {
     const raw = await execGh([
       "api", `repos/${repoSlug(state)}/contents/entries`,
-      "--jq", "[.[] | {name: .name}]",
+      "--jq", "[.[] | {name: .name, sha: .sha}]",
     ]);
     remoteFiles = JSON.parse(raw);
   } catch {
@@ -233,11 +233,11 @@ export async function pullEntries(
 
     machinesSeen.push(remoteMachineId);
 
-    // Download file content
+    // Download file content via git blob API (handles files >1MB)
     let content: string;
     try {
       const raw = await execGh([
-        "api", `repos/${repoSlug(state)}/contents/entries/${file.name}`,
+        "api", `repos/${repoSlug(state)}/git/blobs/${file.sha}`,
         "--jq", ".content",
       ]);
       content = Buffer.from(raw.trim(), "base64").toString("utf-8");
