@@ -34,7 +34,7 @@ function parseFlag(args: string[], flag: string): string | undefined {
   return args[idx + 1];
 }
 
-async function initSync(args: string[]): Promise<void> {
+export async function initSync(args: string[]): Promise<void> {
   // Check gh auth
   const { execFileSync } = await import("node:child_process");
   try {
