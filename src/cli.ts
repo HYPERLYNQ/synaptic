@@ -23,6 +23,7 @@ Usage:
 
 Commands:
   init          Initialize synaptic (default if no command given)
+  serve         Start the MCP server (used by Claude Code plugin system)
   sync          Manage GitHub-based context sync
 
 Options:
@@ -46,6 +47,17 @@ async function main() {
   }
 
   switch (command) {
+    case "serve": {
+      // Start the MCP server — used by the plugin system's .mcp.json
+      const { createServer, getEmbedder, startBackgroundServices } = await import("./server.js");
+      const { StdioServerTransport } = await import("@modelcontextprotocol/sdk/server/stdio.js");
+      const server = createServer();
+      const transport = new StdioServerTransport();
+      await server.connect(transport);
+      startBackgroundServices();
+      getEmbedder().warmup().catch(() => {});
+      break;
+    }
     case "sync":
       await syncCommand(args.slice(1));
       break;

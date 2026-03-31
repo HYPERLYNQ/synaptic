@@ -1,0 +1,6 @@
+{
+  "synaptic": {
+    "command": "synaptic",
+    "args": ["serve"]
+  }
+}
