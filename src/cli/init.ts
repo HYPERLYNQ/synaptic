@@ -198,6 +198,14 @@ function setupMcpServer(env: Environment): void {
 function setupHooks(env: Environment): void {
   const settings = readJsonFile(env.settingsPath);
 
+  // Remove old MCP server from settings.json (now lives in ~/.mcp.json)
+  if (settings.mcpServers && typeof settings.mcpServers === "object") {
+    const mcpServers = settings.mcpServers as Record<string, unknown>;
+    if (mcpServers.synaptic) {
+      delete mcpServers.synaptic;
+    }
+  }
+
   if (!settings.hooks || typeof settings.hooks !== "object") {
     settings.hooks = {};
   }
