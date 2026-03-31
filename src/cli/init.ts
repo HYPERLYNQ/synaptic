@@ -16,7 +16,10 @@ import { createInterface } from "node:readline";
 export interface Environment {
   isWSL: boolean;
   settingsPath: string;
+  settingsLocalPath: string;
   mcpJsonPath: string;
+  /** On WSL, the Windows-side ~/.mcp.json so VS Code can find it */
+  windowsMcpJsonPath: string | null;
   buildDir: string;
   nodeCommand: string;
   nodeArgs: string[];
@@ -34,7 +37,9 @@ export function detectEnvironment(): Environment {
     return {
       isWSL: true,
       settingsPath: join(winProfileWSL, ".claude", "settings.json"),
+      settingsLocalPath: join(winProfileWSL, ".claude", "settings.local.json"),
       mcpJsonPath: join(homedir(), ".mcp.json"),
+      windowsMcpJsonPath: join(winProfileWSL, ".mcp.json"),
       buildDir,
       nodeCommand: String.raw`C:\WINDOWS\system32\wsl.exe`,
       nodeArgs: ["node", "--no-warnings"],
@@ -44,7 +49,9 @@ export function detectEnvironment(): Environment {
   return {
     isWSL: false,
     settingsPath: join(homedir(), ".claude", "settings.json"),
+    settingsLocalPath: join(homedir(), ".claude", "settings.local.json"),
     mcpJsonPath: join(homedir(), ".mcp.json"),
+    windowsMcpJsonPath: null,
     buildDir,
     nodeCommand: "node",
     nodeArgs: ["--no-warnings"],
@@ -60,11 +67,15 @@ export async function initCommand(args: string[]): Promise<void> {
   const env = detectEnvironment();
 
   // Step 1: MCP server
-  process.stdout.write("  [1/2] Registering MCP server...      ");
+  process.stdout.write("  [1/3] Registering MCP server...      ");
   setupMcpServer(env);
 
-  // Step 2: Hooks
-  process.stdout.write("  [2/2] Installing lifecycle hooks...   ");
+  // Step 2: Enable MCP server in settings
+  process.stdout.write("  [2/3] Enabling MCP server...         ");
+  setupSettingsLocal(env);
+
+  // Step 3: Hooks
+  process.stdout.write("  [3/3] Installing lifecycle hooks...   ");
   setupHooks(env);
 
   // Git hooks (project-level only)
@@ -175,23 +186,47 @@ function writeJsonFile(filePath: string, data: Record<string, unknown>): void {
 }
 
 function setupMcpServer(env: Environment): void {
-  const mcpJson = readJsonFile(env.mcpJsonPath);
-
-  if (!mcpJson.mcpServers || typeof mcpJson.mcpServers !== "object") {
-    mcpJson.mcpServers = {};
-  }
-
-  const mcpServers = mcpJson.mcpServers as Record<string, unknown>;
   const indexPath = join(env.buildDir, "src", "index.js");
-
-  // Always update — path may have changed after upgrade
-  mcpServers.synaptic = {
+  const serverEntry = {
     command: env.nodeCommand,
     args: [...env.nodeArgs, indexPath],
     type: "stdio",
   };
 
+  // Write to primary .mcp.json
+  const mcpJson = readJsonFile(env.mcpJsonPath);
+  if (!mcpJson.mcpServers || typeof mcpJson.mcpServers !== "object") {
+    mcpJson.mcpServers = {};
+  }
+  (mcpJson.mcpServers as Record<string, unknown>).synaptic = serverEntry;
   writeJsonFile(env.mcpJsonPath, mcpJson);
+
+  // On WSL, also write to Windows-side .mcp.json so VS Code can find it
+  if (env.windowsMcpJsonPath) {
+    const winMcpJson = readJsonFile(env.windowsMcpJsonPath);
+    if (!winMcpJson.mcpServers || typeof winMcpJson.mcpServers !== "object") {
+      winMcpJson.mcpServers = {};
+    }
+    (winMcpJson.mcpServers as Record<string, unknown>).synaptic = serverEntry;
+    writeJsonFile(env.windowsMcpJsonPath, winMcpJson);
+  }
+
+  console.log("done");
+}
+
+function setupSettingsLocal(env: Environment): void {
+  const settings = readJsonFile(env.settingsLocalPath);
+
+  // Ensure enabledMcpjsonServers includes "synaptic"
+  if (!Array.isArray(settings.enabledMcpjsonServers)) {
+    settings.enabledMcpjsonServers = [];
+  }
+  const servers = settings.enabledMcpjsonServers as string[];
+  if (!servers.includes("synaptic")) {
+    servers.push("synaptic");
+  }
+
+  writeJsonFile(env.settingsLocalPath, settings);
   console.log("done");
 }
 
