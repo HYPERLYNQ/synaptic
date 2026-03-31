@@ -1,5 +1,17 @@
 #!/usr/bin/env node
 
+// Suppress Node.js experimental warnings (e.g., SQLite)
+process.removeAllListeners("warning");
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const origEmit = process.emit.bind(process) as (...args: any[]) => boolean;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+(process as any).emit = function (event: string, ...args: any[]) {
+  if (event === "warning" && args[0]?.name === "ExperimentalWarning") {
+    return false;
+  }
+  return origEmit(event, ...args);
+};
+
 import { initCommand } from "./cli/init.js";
 import { syncCommand } from "./cli/sync.js";
 
