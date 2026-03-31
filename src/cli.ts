@@ -7,10 +7,10 @@ const USAGE = `
 synaptic — persistent local memory for Claude Code
 
 Usage:
-  synaptic <command> [options]
+  synaptic [command] [options]
 
 Commands:
-  init          Initialize synaptic in the current project
+  init          Initialize synaptic (default if no command given)
   sync          Manage GitHub-based context sync
 
 Options:
@@ -21,15 +21,19 @@ async function main() {
   const args = process.argv.slice(2);
   const command = args[0];
 
-  if (!command || command === "--help" || command === "-h") {
+  if (command === "--help" || command === "-h") {
     console.log(USAGE);
     process.exit(0);
   }
 
+  // Default to init --global when no command given
+  if (!command || command === "init") {
+    const initArgs = command === "init" ? args.slice(1) : ["--global"];
+    await initCommand(initArgs);
+    return;
+  }
+
   switch (command) {
-    case "init":
-      await initCommand(args.slice(1));
-      break;
     case "sync":
       await syncCommand(args.slice(1));
       break;
