@@ -13,9 +13,9 @@
 
 **Claude forgets everything between sessions. Synaptic fixes that.**
 
-[![Version](https://img.shields.io/badge/version-1.0.0-blue)](https://github.com/HYPERLYNQ/synaptic/releases)
+[![Version](https://img.shields.io/badge/version-1.1.0-blue)](https://github.com/HYPERLYNQ/synaptic/releases)
 [![npm](https://img.shields.io/npm/v/@hyperlynq/synaptic)](https://www.npmjs.com/package/@hyperlynq/synaptic)
-[![Tests](https://img.shields.io/badge/tests-175%20passing-brightgreen)](https://github.com/HYPERLYNQ/synaptic)
+[![Tests](https://img.shields.io/badge/tests-245%20passing-brightgreen)](https://github.com/HYPERLYNQ/synaptic)
 [![Node](https://img.shields.io/badge/node-22%2B-339933)](https://nodejs.org)
 [![License](https://img.shields.io/badge/license-source--available-orange)](LICENSE)
 
@@ -70,10 +70,10 @@ Claude's auto-memory (`~/.claude/memory/`) saves short notes to files. But there
 | | CLAUDE.md | Auto Memory | **Synaptic** |
 |:---|:---|:---|:---|
 | What it stores | Static instructions | Short notes | Typed, tagged, tiered entries |
-| Search | None | Filename only | Keyword + semantic similarity |
+| Search | None | Filename only | Multi-pass fuzzy + semantic similarity |
 | Cross-session | Only what you manually write | Basic notes | Handoffs, chains, failure history |
 | Git awareness | None | None | Commits, co-changes, codebase DNA |
-| Memory cleanup | Manual | Grows forever | Auto-decay by tier |
+| Memory cleanup | Manual | Grows forever | Auto-decay + smart dedup |
 | Pattern detection | None | None | Tracks recurring failures |
 | Auto-capture | None | None | Semantic anchors capture preferences, decisions, debugging patterns |
 | Fact extraction | None | None | Structural parsing + LLM synthesis of tool output |
@@ -229,11 +229,13 @@ Add to `~/.mcp.json`:
 
 <br>
 
-### Smart Search
+### Intelligent Search
 
 Every entry gets a 384-dimensional embedding generated **locally** using a Hugging Face model.
 
-Search is **always hybrid** by default — combining BM25 keyword matching with semantic vector similarity. Searching for "email provider" finds entries about "Cloudflare Email Routing" even if those exact words were never used. Only single-word ID lookups fall back to keyword-only.
+Search uses **multi-pass concept fusion** — queries are broken into individual concepts, each expanded with edit-distance-1 fuzzy deletions for typo tolerance. Multiple BM25 passes per concept are scored by how many concepts each entry matches, then fused with semantic vector similarity via Reciprocal Rank Fusion (RRF).
+
+This means typos like "fevr project" still find "fever" entries. Searching for "email provider" finds entries about "Cloudflare Email Routing" even if those exact words were never used. Porter stemming is built into the FTS5 index for morphological matching.
 
 Nothing is sent to the internet. Ever.
 
@@ -350,6 +352,8 @@ Synaptic doesn't just store what Claude explicitly saves — it **captures what 
 
 **Consolidation Engine** — Duplicate entries about the same topic are automatically merged during maintenance. The highest-access entry survives with merged tags; the rest are archived. Keeps your memory clean without losing information.
 
+**Smart Dedup** — A two-phase duplicate detection system runs during maintenance and before sync. Phase 1 detects subset entries (if entry A's content is fully contained within entry B, A is archived). Phase 2 uses cosine similarity at a conservative 0.90 threshold to find near-duplicates. The longer, more complete entry always survives, with the highest access count and earliest date preserved across merged entries. Pinned entries and rules are always protected.
+
 **Handoff Access Bumps** — Entries important enough to appear in session handoffs get their access counts incremented, making them survive longer in the decay system. Important memories are self-reinforcing.
 
 <br>
@@ -382,13 +386,27 @@ A background watcher observes your `.git/` directory for branch switches and new
 
 <br>
 
+### Cleanup CLI
+
+Run smart dedup on demand:
+
+```bash
+synaptic cleanup              # Conservative mode — 0.90 similarity threshold
+synaptic cleanup --dry-run    # Preview what would be merged (no changes)
+synaptic cleanup --aggressive # Lower thresholds per entry type (insight: 0.85, decision: 0.92)
+```
+
+Shows a detailed report of subset matches, similarity matches, and archived entries.
+
+<br>
+
 ### Cross-Machine Sync
 
 Use Synaptic on multiple machines? Sync is offered automatically during install. You can also manage it manually:
 
 ```bash
 synaptic sync init          # One-time setup — creates private repo, generates machine ID
-synaptic sync now           # Push & pull immediately
+synaptic sync now           # Runs maintenance + push & pull
 synaptic sync status        # Show machines, last sync times
 ```
 
@@ -488,7 +506,10 @@ Interested in Synaptic for your team? **[Get in touch →](mailto:hyperlynq@gmai
 
 ```bash
 npm run build            # Compile TypeScript
-npm run smoke-test       # Build + run all 175 tests
+npm run smoke-test       # Build + run core tests (175)
+npm run test:search      # Search expansion + multi-pass tests (53)
+npm run test:cleanup     # Smart dedup + cleanup tests (17)
+npm run test:all         # Build + run all 245 tests
 ```
 
 <br>
