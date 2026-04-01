@@ -14,6 +14,7 @@ const origEmit = process.emit.bind(process) as (...args: any[]) => boolean;
 
 import { initCommand } from "./cli/init.js";
 import { syncCommand } from "./cli/sync.js";
+import { cleanupCommand } from "./cli/cleanup.js";
 
 const USAGE = `
 synaptic — persistent local memory for Claude Code
@@ -25,6 +26,7 @@ Commands:
   init          Initialize synaptic (default if no command given)
   serve         Start the MCP server (used by Claude Code plugin system)
   sync          Manage GitHub-based context sync
+  cleanup       Smart duplicate detection and cleanup
 
 Options:
   -h, --help    Show this help message
@@ -60,6 +62,9 @@ async function main() {
     }
     case "sync":
       await syncCommand(args.slice(1));
+      break;
+    case "cleanup":
+      await cleanupCommand(args.slice(1));
       break;
     default:
       console.error(`Unknown command: ${command}`);
