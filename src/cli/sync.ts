@@ -13,6 +13,7 @@ import { hostname } from "node:os";
 import { ContextIndex } from "../storage/sqlite.js";
 import { Embedder } from "../storage/embedder.js";
 import { ensureDirs } from "../storage/paths.js";
+import { runMaintenance } from "../storage/maintenance.js";
 import {
   readSyncState,
   writeSyncState,
@@ -154,11 +155,27 @@ async function syncNow(): Promise<void> {
     process.exit(1);
   }
 
-  console.log("Running sync cycle...");
   ensureDirs();
   const index = new ContextIndex();
   const embedder = new Embedder();
   try {
+    // Run maintenance (includes smart dedup) before pushing
+    console.log("Running maintenance...");
+    const report = runMaintenance(index);
+    const parts: string[] = [];
+    if (report.decayed > 0) parts.push(`${report.decayed} decayed`);
+    if (report.demoted > 0) parts.push(`${report.demoted} demoted`);
+    if (report.promotedStable > 0) parts.push(`${report.promotedStable} promoted`);
+    if (report.consolidated > 0) parts.push(`${report.consolidated} consolidated`);
+    if (report.smartDeduped > 0) parts.push(`${report.smartDeduped} deduped`);
+    if (parts.length > 0) {
+      console.log(`Maintenance: ${parts.join(", ")}`);
+    } else {
+      console.log("Maintenance: nothing to do");
+    }
+
+    // Sync cycle
+    console.log("Running sync cycle...");
     const result = await syncCycle(index, embedder);
     console.log(`Pushed: ${result.pushed} entries`);
     console.log(`Pulled: ${result.pulled} entries`);
