@@ -73,7 +73,7 @@ export function createServer(): McpServer {
 
   const server = new McpServer({
     name: "synaptic",
-    version: "0.9.7",
+    version: "1.1.0",
   });
 
   server.tool(
