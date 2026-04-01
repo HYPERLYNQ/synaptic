@@ -19,6 +19,7 @@ export const STOP_WORDS = new Set([
 
 export interface ExpandedConcept {
   original: string;
+  /** Fuzzy expansions only — does NOT include the original term. */
   variations: string[];
 }
 
