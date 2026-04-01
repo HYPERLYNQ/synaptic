@@ -819,6 +819,156 @@ export class ContextIndex {
     return groups;
   }
 
+  /**
+   * Smart dedup: find and merge duplicate entries using cosine similarity
+   * and substring detection. Uses content-aware survivor selection.
+   */
+  smartDedup(opts: {
+    threshold?: number;
+    typeThresholds?: Record<string, number>;
+    dryRun?: boolean;
+    minAgeDays?: number;
+  } = {}): Array<{
+    survivorId: string;
+    survivorContent: string;
+    archivedIds: string[];
+    reason: "similarity" | "subset";
+    similarity?: number;
+  }> {
+    const defaultThreshold = opts.threshold ?? 0.90;
+    const typeThresholds = opts.typeThresholds ?? {};
+    const dryRun = opts.dryRun ?? false;
+    const minAgeDays = opts.minAgeDays ?? 3;
+
+    const now = Date.now();
+    const minAgeMs = minAgeDays * 24 * 60 * 60 * 1000;
+
+    // Get all non-archived, non-pinned, non-rule entries older than minAgeDays
+    const candidates = this.list({ includeArchived: false })
+      .filter(e => {
+        if (e.pinned) return false;
+        if (e.type === "rule") return false;
+        const entryDate = new Date(e.date).getTime();
+        if ((now - entryDate) < minAgeMs) return false;
+        return true;
+      });
+
+    if (candidates.length < 2) return [];
+
+    const actions: Array<{
+      survivorId: string;
+      survivorContent: string;
+      archivedIds: string[];
+      reason: "similarity" | "subset";
+      similarity?: number;
+    }> = [];
+    const archived = new Set<string>();
+
+    // Normalize content for substring comparison
+    const normalize = (s: string): string =>
+      s.toLowerCase().replace(/\s+/g, " ").replace(/\[consolidated from \d+ entries\]/gi, "").trim();
+
+    // Phase 1: Subset detection — if entry A is contained within entry B, archive A
+    for (let i = 0; i < candidates.length; i++) {
+      if (archived.has(candidates[i].id)) continue;
+      const normI = normalize(candidates[i].content);
+      if (normI.length < 20) continue; // skip very short entries
+
+      for (let j = 0; j < candidates.length; j++) {
+        if (i === j) continue;
+        if (archived.has(candidates[j].id)) continue;
+        const normJ = normalize(candidates[j].content);
+
+        // Check if i is a strict subset of j (i is shorter and contained in j)
+        if (normI.length < normJ.length && normJ.includes(normI)) {
+          archived.add(candidates[i].id);
+          actions.push({
+            survivorId: candidates[j].id,
+            survivorContent: candidates[j].content.slice(0, 100),
+            archivedIds: [candidates[i].id],
+            reason: "subset",
+          });
+
+          if (!dryRun) {
+            this.mergeTagsInto(candidates[j].id, [candidates[i].id]);
+            this.archiveEntries([candidates[i].id]);
+            // Preserve highest access count
+            if ((candidates[i].accessCount ?? 0) > (candidates[j].accessCount ?? 0)) {
+              this.db.prepare(
+                "UPDATE entries SET access_count = ? WHERE id = ?"
+              ).run(candidates[i].accessCount ?? 0, candidates[j].id);
+            }
+          }
+          break; // entry i is archived, move to next
+        }
+      }
+    }
+
+    // Phase 2: Cosine similarity — pair-wise comparison for remaining entries
+    const remaining = candidates.filter(e => !archived.has(e.id));
+
+    for (let i = 0; i < remaining.length; i++) {
+      if (archived.has(remaining[i].id)) continue;
+      const embA = this.getEmbedding(remaining[i].id);
+      if (!embA) continue;
+
+      for (let j = i + 1; j < remaining.length; j++) {
+        if (archived.has(remaining[j].id)) continue;
+        const embB = this.getEmbedding(remaining[j].id);
+        if (!embB) continue;
+
+        const sim = cosineSimilarity(embA, embB);
+
+        // Get threshold for this pair (use the stricter of the two types)
+        const threshA = typeThresholds[remaining[i].type] ?? defaultThreshold;
+        const threshB = typeThresholds[remaining[j].type] ?? defaultThreshold;
+        const effectiveThreshold = Math.max(threshA, threshB);
+
+        if (sim >= effectiveThreshold) {
+          // Smart survivor selection: pick the longer/more complete entry
+          let survivor: ContextEntry;
+          let loser: ContextEntry;
+
+          if (remaining[i].content.length >= remaining[j].content.length) {
+            survivor = remaining[i];
+            loser = remaining[j];
+          } else {
+            survivor = remaining[j];
+            loser = remaining[i];
+          }
+
+          archived.add(loser.id);
+          actions.push({
+            survivorId: survivor.id,
+            survivorContent: survivor.content.slice(0, 100),
+            archivedIds: [loser.id],
+            reason: "similarity",
+            similarity: sim,
+          });
+
+          if (!dryRun) {
+            this.mergeTagsInto(survivor.id, [loser.id]);
+            this.archiveEntries([loser.id]);
+            // Preserve highest access count
+            if ((loser.accessCount ?? 0) > (survivor.accessCount ?? 0)) {
+              this.db.prepare(
+                "UPDATE entries SET access_count = ? WHERE id = ?"
+              ).run(loser.accessCount ?? 0, survivor.id);
+            }
+            // Preserve earliest date
+            if (loser.date < survivor.date) {
+              this.db.prepare(
+                "UPDATE entries SET date = ? WHERE id = ?"
+              ).run(loser.date, survivor.id);
+            }
+          }
+        }
+      }
+    }
+
+    return actions;
+  }
+
   /** Escape LIKE wildcards to prevent pattern injection. */
   private escapeLike(str: string): string {
     return str.replace(/[%_\\]/g, "\\$&");
