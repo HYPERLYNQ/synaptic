@@ -6,6 +6,7 @@ export interface MaintenanceReport {
   promotedStable: number;
   promotedFrequent: number;
   consolidated: number;
+  smartDeduped: number;
 }
 
 export function runMaintenance(index: ContextIndex): MaintenanceReport {
@@ -14,7 +15,12 @@ export function runMaintenance(index: ContextIndex): MaintenanceReport {
   const promotedStable = index.promoteStable();
   const promotedFrequent = index.promoteFrequent();
   const consolidated = consolidate(index);
-  return { decayed, demoted, promotedStable, promotedFrequent, consolidated };
+
+  // Smart dedup: conservative pass (0.90 threshold, pairs only)
+  const dedupActions = index.smartDedup({ threshold: 0.90 });
+  const smartDeduped = dedupActions.length;
+
+  return { decayed, demoted, promotedStable, promotedFrequent, consolidated, smartDeduped };
 }
 
 function consolidate(index: ContextIndex): number {

@@ -333,7 +333,7 @@ function buildContextLines(
 
   // --- SECTION 7: Maintenance (only if something happened) ---
   const budgetForMaint: string[] = [];
-  const maintTotal = maintenance.decayed + maintenance.demoted + maintenance.promotedStable + maintenance.promotedFrequent + maintenance.consolidated;
+  const maintTotal = maintenance.decayed + maintenance.demoted + maintenance.promotedStable + maintenance.promotedFrequent + maintenance.consolidated + maintenance.smartDeduped;
   if (maintTotal > 0) {
     const parts: string[] = [];
     if (maintenance.decayed > 0) parts.push(`${maintenance.decayed} archived`);
@@ -341,6 +341,7 @@ function buildContextLines(
     if (maintenance.promotedStable > 0) parts.push(`${maintenance.promotedStable} promoted`);
     if (maintenance.promotedFrequent > 0) parts.push(`${maintenance.promotedFrequent} promoted`);
     if (maintenance.consolidated > 0) parts.push(`${maintenance.consolidated} consolidated`);
+    if (maintenance.smartDeduped > 0) parts.push(`${maintenance.smartDeduped} deduped`);
     budgetForMaint.push(`_Maintenance: ${parts.join(", ")}._`);
   }
 
