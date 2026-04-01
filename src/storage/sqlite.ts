@@ -3,6 +3,8 @@ import { randomBytes } from "node:crypto";
 import * as sqliteVec from "sqlite-vec";
 import { DB_PATH, ensureDirs } from "./paths.js";
 import type { ContextEntry } from "./markdown.js";
+import { expandQuery, conceptToFts5 } from "./search-utils.js";
+import type { ExpandedConcept } from "./search-utils.js";
 
 function cosineSimilarity(a: Float32Array, b: Float32Array): number {
   let dot = 0, normA = 0, normB = 0;
@@ -276,6 +278,97 @@ export class ContextIndex {
     }));
   }
 
+  /**
+   * Multi-pass BM25 search: runs one FTS5 query per concept,
+   * scores entries by how many concepts they match.
+   * Returns entries sorted by concept-match count (descending).
+   */
+  multiPassSearch(
+    concepts: ExpandedConcept[],
+    opts: { type?: string; days?: number; limit?: number; includeArchived?: boolean } = {}
+  ): Array<{ entry: ContextEntry; conceptHits: number }> {
+    if (concepts.length === 0) return [];
+    const limit = opts.limit ?? 20;
+    const candidateLimit = limit * 3;
+
+    // Track concept hit counts per entry ID
+    const hitCounts = new Map<string, number>();
+    const entryCache = new Map<string, ContextEntry>();
+
+    for (const concept of concepts) {
+      const fts5Expr = conceptToFts5(concept);
+
+      const conditions: string[] = [];
+      const params: (string | number)[] = [];
+
+      conditions.push("entries_fts MATCH ?");
+      params.push(fts5Expr);
+
+      if (opts.type) {
+        conditions.push("e.type = ?");
+        params.push(opts.type);
+      }
+      if (opts.days) {
+        conditions.push("e.date >= date('now', '-' || ? || ' days')");
+        params.push(opts.days);
+      }
+      if (!opts.includeArchived) {
+        conditions.push("e.archived = 0");
+      }
+      params.push(candidateLimit);
+
+      try {
+        const sql = `
+          SELECT e.id, e.date, e.time, e.type, e.tags, e.content, e.source_file,
+                 e.tier, e.access_count, e.last_accessed, e.pinned, e.archived,
+                 e.project, e.session_id, e.agent_id
+          FROM entries_fts
+          JOIN entries e ON entries_fts.rowid = e.rowid
+          WHERE ${conditions.join(" AND ")}
+          LIMIT ?
+        `;
+        const rows = this.db.prepare(sql).all(...params) as Record<string, unknown>[];
+
+        for (const row of rows) {
+          const id = row.id as string;
+          hitCounts.set(id, (hitCounts.get(id) ?? 0) + 1);
+          if (!entryCache.has(id)) {
+            entryCache.set(id, {
+              id,
+              date: row.date as string,
+              time: row.time as string,
+              type: row.type as string,
+              tags: (row.tags as string).split(", ").filter(Boolean),
+              content: row.content as string,
+              sourceFile: row.source_file as string,
+              tier: row.tier as ContextEntry["tier"],
+              accessCount: row.access_count as number,
+              lastAccessed: row.last_accessed as string | null,
+              pinned: !!(row.pinned as number),
+              archived: !!(row.archived as number),
+              project: row.project as string | null,
+              sessionId: row.session_id as string | null,
+              agentId: row.agent_id as string | null,
+            });
+          }
+        }
+      } catch {
+        // FTS5 query failed for this concept — skip it
+        continue;
+      }
+    }
+
+    // Sort by concept hit count descending, then by date descending
+    const results = Array.from(entryCache.entries())
+      .map(([id, entry]) => ({ entry, conceptHits: hitCounts.get(id) ?? 0 }))
+      .sort((a, b) => {
+        if (b.conceptHits !== a.conceptHits) return b.conceptHits - a.conceptHits;
+        return b.entry.date.localeCompare(a.entry.date);
+      });
+
+    return results.slice(0, candidateLimit);
+  }
+
   searchVec(
     embedding: Float32Array,
     limit: number
@@ -516,10 +609,21 @@ export class ContextIndex {
     opts: { type?: string; days?: number; limit?: number; tier?: string; includeArchived?: boolean; project?: string | null } = {}
   ): ContextEntry[] {
     const limit = opts.limit ?? 20;
-    // Fetch more candidates than needed for RRF merging
     const candidateLimit = limit * 3;
 
-    // 1. BM25 search
+    // 1. Multi-pass concept BM25 search
+    const concepts = expandQuery(query);
+
+    const conceptResults = concepts.length > 0
+      ? this.multiPassSearch(concepts, {
+          type: opts.type,
+          days: opts.days,
+          limit: candidateLimit,
+          includeArchived: opts.includeArchived,
+        })
+      : [];
+
+    // Also run the original single-pass BM25 as fallback
     const bm25Results = this.search(query, {
       type: opts.type,
       days: opts.days,
@@ -530,33 +634,34 @@ export class ContextIndex {
     // 2. Vector search
     const vecResults = this.searchVec(embedding, candidateLimit);
 
-    // 3. RRF merge
+    // 3. RRF merge with concept-count boost
     const K = 60;
-    const scores = new Map<number, number>(); // rowid -> rrf score
+    const scores = new Map<string, number>(); // entry ID -> rrf score
+    const entryMap = new Map<string, ContextEntry>();
 
-    // Get rowids for BM25 results
-    const bm25Ids = bm25Results.map((e) => e.id);
-    const bm25Rowids = this.getRowidsByIds(bm25Ids);
+    // Score concept results — entries matching more concepts rank higher
+    const totalConcepts = concepts.length || 1;
+    for (const { entry, conceptHits } of conceptResults) {
+      const conceptBoost = conceptHits / totalConcepts; // 0.0 to 1.0
+      scores.set(entry.id, (scores.get(entry.id) ?? 0) + conceptBoost * 0.5);
+      entryMap.set(entry.id, entry);
+    }
 
-    bm25Rowids.forEach((rowid, rank) => {
-      scores.set(rowid, (scores.get(rowid) ?? 0) + 1 / (K + rank + 1));
+    // Score original BM25 results via RRF
+    bm25Results.forEach((entry, rank) => {
+      scores.set(entry.id, (scores.get(entry.id) ?? 0) + 1 / (K + rank + 1));
+      entryMap.set(entry.id, entry);
     });
 
-    vecResults.forEach(({ rowid }, rank) => {
-      scores.set(rowid, (scores.get(rowid) ?? 0) + 1 / (K + rank + 1));
+    // Score vector results via RRF
+    const vecRowids = vecResults.map(r => r.rowid);
+    const vecEntries = this.getByRowids(vecRowids);
+    vecEntries.forEach((entry, rank) => {
+      scores.set(entry.id, (scores.get(entry.id) ?? 0) + 1 / (K + rank + 1));
+      entryMap.set(entry.id, entry);
     });
 
-    // 4. Temporal decay
-    const allRowids = Array.from(scores.keys());
-    const entries = this.getByRowids(allRowids);
-    const entryMap = new Map<number, ContextEntry>();
-
-    // Build rowid -> entry map
-    const rowidLookup = this.getRowidsByIds(entries.map((e) => e.id));
-    entries.forEach((entry, i) => {
-      entryMap.set(rowidLookup[i], entry);
-    });
-
+    // 4. Apply temporal decay, tier weight, confidence boost, project boost
     const today = new Date();
     const currentProject = opts.project ?? null;
 
@@ -580,18 +685,18 @@ export class ContextIndex {
       return 1.4;
     };
 
-    const scored = allRowids.map((rowid) => {
-      const entry = entryMap.get(rowid)!;
+    const scored = Array.from(scores.entries()).map(([id, rawScore]) => {
+      const entry = entryMap.get(id)!;
       const entryDate = new Date(entry.date);
       const ageDays = (today.getTime() - entryDate.getTime()) / (1000 * 60 * 60 * 24);
       const decay = Math.pow(0.5, ageDays / 30);
       return {
         entry,
-        score: (scores.get(rowid) ?? 0) * decay * tierWeight(entry.tier) * confidenceBoost(entry.accessCount ?? 0) * projectBoost(entry.project, currentProject),
+        score: rawScore * decay * tierWeight(entry.tier) * confidenceBoost(entry.accessCount ?? 0) * projectBoost(entry.project, currentProject),
       };
     });
 
-    // 5. Filter, sort by score descending, return top N
+    // 5. Filter, sort, return top N
     const filtered = scored.filter((s) => {
       if (!opts.includeArchived && s.entry.archived) return false;
       if (opts.tier && s.entry.tier !== opts.tier) return false;
