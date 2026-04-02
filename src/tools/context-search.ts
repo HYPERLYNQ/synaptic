@@ -20,7 +20,7 @@ export const contextSearchSchema = {
     .int()
     .positive()
     .max(100)
-    .default(20)
+    .default(10)
     .describe("Maximum results to return"),
   tier: z
     .enum(["ephemeral", "working", "longterm"])
@@ -95,15 +95,19 @@ export async function contextSearch(
     });
   }
 
+  const MAX_CONTENT_LENGTH = 1500;
+
   const enriched = results.map((r) => {
     const pattern = index.getPatternForEntry(r.id);
+    const truncated = r.content.length > MAX_CONTENT_LENGTH;
     return {
       id: r.id,
       date: r.date,
       time: r.time,
       type: r.type,
       tags: r.tags,
-      content: r.content,
+      content: truncated ? r.content.slice(0, MAX_CONTENT_LENGTH) + "\n…[truncated]" : r.content,
+      ...(truncated ? { truncated: true } : {}),
       ...(r.tier ? { tier: r.tier } : {}),
       ...(pattern ? { pattern: `Recurring pattern: seen ${pattern.occurrenceCount} times (pattern: ${pattern.id})` } : {}),
     };
