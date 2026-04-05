@@ -30,6 +30,7 @@ import { extractWithLLM } from "../extraction/llm-extract.js";
 import { extractCheckPatterns, checkMessageAgainstPatterns } from "../cli/rule-patterns.js";
 import { isSyncEnabled, readSyncState, pushEntries } from "../storage/sync.js";
 import { scoreSignals } from "../storage/signals.js";
+import { contentHash } from "../storage/search-utils.js";
 
 const DEBOUNCE_FILE = join(DB_DIR, ".last-handoff");
 const DEBOUNCE_MS = 5 * 60 * 1000; // 5 minutes
@@ -131,17 +132,25 @@ async function scanTranscript(
                               (signals.signals.consistency ?? 0);
     if (directiveStrength < 0.5) continue;
 
-    // Deduplicate against existing rules + existing pending_rule entries
+    // Content-hash dedup: fast check for exact/near-exact content
+    const hash = contentHash(msg.text);
+    const recentPending = index.list({ days: 30 }).filter(e => e.tags.includes("pending_rule"));
+    const hashMatch = recentPending.find(e => contentHash(e.content) === hash);
+    if (hashMatch) {
+      index.updateTimestamp(hashMatch.id);
+      continue;
+    }
+
+    // Vector dedup: check against existing rules + pending rules
     const msgEmb = await embedder.embed(msg.text);
     const existingRules = index.listRules();
-    const pendingRules = index.list({ days: 7 }).filter(e => e.tags.includes("pending_rule"));
     let isDuplicate = false;
 
-    for (const rule of [...existingRules, ...pendingRules.map(r => ({ label: "", content: r.content }))]) {
+    for (const rule of [...existingRules, ...recentPending.map(r => ({ label: "", content: r.content }))]) {
       const ruleEmb = await embedder.embed(rule.content);
       let dot = 0;
       for (let i = 0; i < msgEmb.length; i++) dot += msgEmb[i] * ruleEmb[i];
-      if (dot >= 0.75) { isDuplicate = true; break; }
+      if (dot >= 0.70) { isDuplicate = true; break; }
     }
     if (isDuplicate) continue;
 
@@ -525,7 +534,16 @@ async function main(): Promise<void> {
 
       // Save corrections as pending rule proposals
       if (corrections.length > 0) {
+        const recentPendingForCorr = index.list({ days: 30 }).filter(e => e.tags.includes("pending_rule"));
         for (const corr of corrections.slice(0, 3)) {
+          // Content-hash dedup
+          const corrHash = contentHash(corr.content);
+          const existingMatch = recentPendingForCorr.find(e => contentHash(e.content) === corrHash);
+          if (existingMatch) {
+            index.updateTimestamp(existingMatch.id);
+            continue;
+          }
+
           const label = corr.content.slice(0, 40).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/-+$/, "");
           const pendingEntry = appendEntry(
             corr.content,
