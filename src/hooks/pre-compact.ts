@@ -21,6 +21,7 @@ import {
   readNewMessages,
 } from "../storage/transcript.js";
 import { scoreSignals } from "../storage/signals.js";
+import { contentHash } from "../storage/search-utils.js";
 
 interface PreCompactInput {
   trigger: string;
@@ -90,16 +91,25 @@ async function scanTranscript(
                               (signals.signals.consistency ?? 0);
     if (directiveStrength < 0.5) continue;
 
+    // Content-hash dedup: fast check for exact/near-exact content
+    const hash = contentHash(msg.text);
+    const recentPending = index.list({ days: 30 }).filter(e => e.tags.includes("pending_rule"));
+    const hashMatch = recentPending.find(e => contentHash(e.content) === hash);
+    if (hashMatch) {
+      index.updateTimestamp(hashMatch.id);
+      continue;
+    }
+
+    // Vector dedup with lower threshold
     const msgEmb = await embedder.embed(msg.text);
     const existingRules = index.listRules();
-    const pendingRules = index.list({ days: 7 }).filter(e => e.tags.includes("pending_rule"));
     let isDuplicate = false;
 
-    for (const rule of [...existingRules, ...pendingRules.map(r => ({ label: "", content: r.content }))]) {
+    for (const rule of [...existingRules, ...recentPending.map(r => ({ label: "", content: r.content }))]) {
       const ruleEmb = await embedder.embed(rule.content);
       let dot = 0;
       for (let i = 0; i < msgEmb.length; i++) dot += msgEmb[i] * ruleEmb[i];
-      if (dot >= 0.75) { isDuplicate = true; break; }
+      if (dot >= 0.70) { isDuplicate = true; break; }
     }
     if (isDuplicate) continue;
 
