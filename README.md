@@ -13,7 +13,7 @@
 
 **Claude forgets everything between sessions. Synaptic fixes that.**
 
-[![Version](https://img.shields.io/badge/version-1.1.1-blue)](https://github.com/HYPERLYNQ/synaptic/releases)
+[![Version](https://img.shields.io/badge/version-1.2.0-blue)](https://github.com/HYPERLYNQ/synaptic/releases)
 [![npm](https://img.shields.io/npm/v/@hyperlynq/synaptic)](https://www.npmjs.com/package/@hyperlynq/synaptic)
 [![Tests](https://img.shields.io/badge/tests-245%20passing-brightgreen)](https://github.com/HYPERLYNQ/synaptic)
 [![Node](https://img.shields.io/badge/node-22%2B-339933)](https://nodejs.org)
@@ -354,7 +354,7 @@ Synaptic doesn't just store what Claude explicitly saves — it **captures what 
 
 **Smart Dedup** — A two-phase duplicate detection system runs during maintenance and before sync. Phase 1 detects subset entries (if entry A's content is fully contained within entry B, A is archived). Phase 2 uses cosine similarity at a conservative 0.90 threshold to find near-duplicates. The longer, more complete entry always survives, with the highest access count and earliest date preserved across merged entries. Pinned entries and rules are always protected.
 
-**Handoff Access Bumps** — Entries important enough to appear in session handoffs get their access counts incremented, making them survive longer in the decay system. Important memories are self-reinforcing.
+**Project-Grouped Handoffs** — Session-end handoffs are organized by project, each with entry type counts, up to 8 learnings (300 char summaries), and pending/TODO items. Important entries get their access counts incremented, making them survive longer in the decay system.
 
 <br>
 
@@ -388,15 +388,16 @@ A background watcher observes your `.git/` directory for branch switches and new
 
 ### Cleanup CLI
 
-Run smart dedup on demand:
+Run smart dedup and duplicate purging on demand:
 
 ```bash
-synaptic cleanup              # Conservative mode — 0.90 similarity threshold
-synaptic cleanup --dry-run    # Preview what would be merged (no changes)
-synaptic cleanup --aggressive # Lower thresholds per entry type (insight: 0.85, decision: 0.92)
+synaptic cleanup                        # Conservative mode — 0.90 similarity threshold
+synaptic cleanup --dry-run              # Preview what would be merged (no changes)
+synaptic cleanup --aggressive           # Lower thresholds, purge empty handoffs
+synaptic cleanup --purge-pending-dupes  # Archive duplicate pending rule proposals
 ```
 
-Shows a detailed report of subset matches, similarity matches, and archived entries.
+The `--aggressive` flag uses type-specific thresholds (insight: 0.85, decision: 0.92), purges empty handoff entries, and reduces the minimum age filter. `--purge-pending-dupes` groups pending rules by label and content hash, keeping only the newest entry per group. The FTS5 search index is automatically rebuilt after any changes.
 
 <br>
 
