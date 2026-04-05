@@ -404,8 +404,58 @@ async function main(): Promise<void> {
     );
     const tagList = filteredTags;
 
-    // Collect real-time insight saves from today (the primary distillation source)
-    // Exclude transcript-scan auto-captures and pending_rule entries — only human-triggered saves
+    const contentParts: string[] = [];
+
+    // Group entries by project for structured handoff
+    const byProject = new Map<string, typeof todayEntries>();
+    for (const entry of todayEntries) {
+      const proj = entry.project || "general";
+      if (!byProject.has(proj)) byProject.set(proj, []);
+      byProject.get(proj)!.push(entry);
+    }
+
+    for (const [project, entries] of byProject) {
+      const typeCounts = new Map<string, number>();
+      for (const e of entries) typeCounts.set(e.type, (typeCounts.get(e.type) ?? 0) + 1);
+      const typeStr = Array.from(typeCounts.entries())
+        .map(([t, c]) => `${t}:${c}`)
+        .join(", ");
+
+      contentParts.push(`**${project}** (${entries.length} entries — ${typeStr}):`);
+
+      // Get insights for this project (up to 8, 300 char limit)
+      const projectInsights = entries
+        .filter(e =>
+          e.type === "insight" &&
+          !e.tags.includes("pending_rule") &&
+          !e.tags.includes("transcript-scan") &&
+          !e.content.startsWith("Activity:")
+        )
+        .slice(0, 8);
+
+      if (projectInsights.length > 0) {
+        contentParts.push("Learnings:");
+        for (const insight of projectInsights) {
+          const summary = insight.content.length > 300
+            ? insight.content.slice(0, 300) + "..."
+            : insight.content;
+          contentParts.push(`- ${summary}`);
+        }
+      }
+
+      // List pending/TODO items
+      const pending = entries.filter(e =>
+        e.tags.some(t => ["todo", "pending", "next", "in-progress"].includes(t))
+      );
+      if (pending.length > 0) {
+        contentParts.push("Pending:");
+        for (const p of pending.slice(0, 5)) {
+          contentParts.push(`- ${p.content.slice(0, 200)}`);
+        }
+      }
+    }
+
+    // Keep todayInsights reference for compatibility with safety net below
     const todayInsights = todayEntries
       .filter(e =>
         e.type === "insight" &&
@@ -413,24 +463,6 @@ async function main(): Promise<void> {
         !e.content.startsWith("Activity:")
       )
       .slice(0, 5);
-
-    const contentParts: string[] = [];
-
-    // Activity line
-    const projects = new Set(todayEntries.map(e => e.project).filter(Boolean));
-    const projectStr = projects.size > 0 ? ` across ${Array.from(projects).join(", ")}` : "";
-    contentParts.push(`Activity: ${todayEntries.length} entries${projectStr}.`);
-
-    // Learnings section (from real-time insight saves)
-    if (todayInsights.length > 0) {
-      contentParts.push("Learnings:");
-      for (const insight of todayInsights) {
-        const summary = insight.content.length > 150
-          ? insight.content.slice(0, 150) + "..."
-          : insight.content;
-        contentParts.push(`- ${summary}`);
-      }
-    }
 
     // Pre-filter non-insight entries for use by safety net + intent classification
     const nonInsightEntries = todayEntries
