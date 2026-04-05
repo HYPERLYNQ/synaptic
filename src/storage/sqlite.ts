@@ -663,7 +663,7 @@ export class ContextIndex {
     const totalConcepts = concepts.length || 1;
     for (const { entry, conceptHits } of conceptResults) {
       const conceptBoost = conceptHits / totalConcepts; // 0.0 to 1.0
-      scores.set(entry.id, (scores.get(entry.id) ?? 0) + conceptBoost * 0.5);
+      scores.set(entry.id, (scores.get(entry.id) ?? 0) + conceptBoost * 1.5);
       entryMap.set(entry.id, entry);
     }
 
@@ -687,7 +687,7 @@ export class ContextIndex {
 
     const projectBoost = (entryProject: string | null | undefined, curProject: string | null): number => {
       if (!curProject || !entryProject) return 1.0;
-      return entryProject === curProject ? 1.5 : 1.0;
+      return entryProject === curProject ? 2.0 : 1.0;
     };
 
     const tierWeight = (tier: string | undefined): number => {
