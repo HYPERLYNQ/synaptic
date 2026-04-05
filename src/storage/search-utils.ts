@@ -6,6 +6,8 @@
  * (`tokenize='porter unicode61'`), so we do NOT duplicate it here.
  */
 
+import { createHash } from "node:crypto";
+
 export const STOP_WORDS = new Set([
   "a", "an", "the", "and", "or", "but", "in", "on", "at", "to", "for",
   "of", "with", "by", "from", "is", "it", "as", "be", "was", "were",
@@ -93,4 +95,13 @@ export function expandQuery(query: string): ExpandedConcept[] {
 export function conceptToFts5(concept: ExpandedConcept): string {
   const all = [concept.original, ...concept.variations];
   return all.map((t) => `"${t}"`).join(" OR ");
+}
+
+/**
+ * Produce a short content-based hash for deduplication.
+ * Normalizes: lowercase, collapse whitespace, strip punctuation.
+ */
+export function contentHash(text: string): string {
+  const normalized = text.toLowerCase().replace(/\s+/g, " ").replace(/[^\w\s]/g, "").trim();
+  return createHash("sha256").update(normalized).digest("hex").slice(0, 16);
 }

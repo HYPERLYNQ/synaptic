@@ -603,6 +603,26 @@ export class ContextIndex {
     return result.changes > 0;
   }
 
+  /** Update an entry's date and time to now (for upsert-style dedup). */
+  updateTimestamp(id: string): boolean {
+    const now = new Date();
+    const date = now.toISOString().split("T")[0];
+    const time = now.toTimeString().slice(0, 5);
+    const result = this.db.prepare(
+      "UPDATE entries SET date = ?, time = ? WHERE id = ? AND archived = 0"
+    ).run(date, time, id);
+    return (result.changes ?? 0) > 0;
+  }
+
+  /** Drop and rebuild the FTS5 index from non-archived entries. */
+  rebuildFts(): void {
+    this.db.exec("DELETE FROM entries_fts");
+    this.db.exec(`
+      INSERT INTO entries_fts(rowid, content, tags, type)
+      SELECT rowid, content, tags, type FROM entries WHERE archived = 0
+    `);
+  }
+
   hybridSearch(
     query: string,
     embedding: Float32Array,
