@@ -491,18 +491,18 @@ async function main(): Promise<void> {
 
   index.clearAll();
 
-  // Entry with 0 accesses, 4 days old — should be archived (new threshold: 3 days)
+  // Entry with 0 accesses, 8 days old — should be archived (threshold: 7 days)
   const zeroAccess = makeEntry({ type: "progress", content: "Zero access entry", tier: "ephemeral" });
   zeroAccess.accessCount = 0;
   index.insert(zeroAccess);
 
-  // Entry with 5 accesses, 4 days old — should NOT be archived (threshold: 14 days)
+  // Entry with 5 accesses, 8 days old — should NOT be archived (threshold: 21 days)
   const highAccessEph = makeEntry({ type: "progress", content: "High access ephemeral", tier: "ephemeral" });
   highAccessEph.accessCount = 5;
   index.insert(highAccessEph);
 
   const rawDb4 = new DatabaseSync(DB_PATH);
-  rawDb4.exec(`UPDATE entries SET date = date('now', '-4 days') WHERE id IN ('${zeroAccess.id}', '${highAccessEph.id}')`);
+  rawDb4.exec(`UPDATE entries SET date = date('now', '-8 days') WHERE id IN ('${zeroAccess.id}', '${highAccessEph.id}')`);
   rawDb4.close();
 
   const decayedCount = index.decayEphemeral();
@@ -511,8 +511,8 @@ async function main(): Promise<void> {
   const remaining = index.list();
   const zeroStillThere = remaining.find(e => e.id === zeroAccess.id);
   const highStillThere = remaining.find(e => e.id === highAccessEph.id);
-  assert(zeroStillThere === undefined, `Zero-access entry archived after 4 days`);
-  assert(highStillThere !== undefined, `High-access entry NOT archived after 4 days`);
+  assert(zeroStillThere === undefined, `Zero-access entry archived after 8 days`);
+  assert(highStillThere !== undefined, `High-access entry NOT archived after 8 days`);
 
   // -------------------------------------------------------
   // 18. Test co-change pair generation
@@ -772,7 +772,7 @@ async function main(): Promise<void> {
   console.log("\n[27] v0.7.0 integration");
 
   const pkgFinal = JSON.parse(readFileSync(join(PROJECT_DIR, "package.json"), "utf-8"));
-  assert(pkgFinal.version === "0.7.2", `Version is 0.7.2 (got ${pkgFinal.version})`);
+  assert(pkgFinal.version === "1.1.1", `Version is 1.1.1 (got ${pkgFinal.version})`);
   assert(pkgFinal.bin?.synaptic === "build/src/cli.js", "bin field points to CLI");
 
   assert(existsSync(join(PROJECT_DIR, "build", "src", "cli.js")), "CLI entry point built");
