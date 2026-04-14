@@ -170,13 +170,26 @@ function windowsPathToWSL(winPath: string): string {
 }
 
 function readJsonFile(filePath: string): Record<string, unknown> {
+  if (!existsSync(filePath)) return {};
+  const raw = readFileSync(filePath, "utf-8");
   try {
-    if (!existsSync(filePath)) return {};
-    const raw = readFileSync(filePath, "utf-8");
     return JSON.parse(raw) as Record<string, unknown>;
-  } catch {
-    return {};
+  } catch (err) {
+    throw new Error(
+      `Cannot parse ${filePath} as JSON — aborting to avoid overwriting your settings. ` +
+        `Fix or move the file and re-run init. Underlying error: ${(err as Error).message}`,
+    );
   }
+}
+
+/**
+ * Normalize a path to POSIX-style forward slashes.
+ * Node handles forward slashes natively on Windows, and this keeps paths
+ * immune to JSON-escape corruption when the settings file is hand-edited
+ * or re-serialized by external tools.
+ */
+function toPosix(p: string): string {
+  return p.replace(/\\/g, "/");
 }
 
 function writeJsonFile(filePath: string, data: Record<string, unknown>): void {
@@ -186,7 +199,7 @@ function writeJsonFile(filePath: string, data: Record<string, unknown>): void {
 }
 
 function setupMcpServer(env: Environment): void {
-  const indexPath = join(env.buildDir, "src", "index.js");
+  const indexPath = toPosix(join(env.buildDir, "src", "index.js"));
   const serverEntry = {
     command: env.nodeCommand,
     args: [...env.nodeArgs, indexPath],
@@ -233,11 +246,13 @@ function setupSettingsLocal(env: Environment): void {
 function setupHooks(env: Environment): void {
   const settings = readJsonFile(env.settingsPath);
 
+  const buildDirPosix = toPosix(env.buildDir);
+
   // Also register MCP server in settings.json for VS Code compatibility
   if (!settings.mcpServers || typeof settings.mcpServers !== "object") {
     settings.mcpServers = {};
   }
-  const indexPath = join(env.buildDir, "src", "index.js");
+  const indexPath = toPosix(join(env.buildDir, "src", "index.js"));
   (settings.mcpServers as Record<string, unknown>).synaptic = {
     command: env.nodeCommand,
     args: [...env.nodeArgs, indexPath],
@@ -249,7 +264,7 @@ function setupHooks(env: Environment): void {
     settings.extraKnownMarketplaces = {};
   }
   (settings.extraKnownMarketplaces as Record<string, unknown>).synaptic = {
-    source: { source: "directory", path: env.buildDir },
+    source: { source: "directory", path: buildDirPosix },
   };
 
   // Enable the synaptic plugin
@@ -264,36 +279,53 @@ function setupHooks(env: Environment): void {
 
   const hooks = settings.hooks as Record<string, unknown>;
 
+  // Shell-quote the script path so paths with spaces (e.g. "C:/Users/John Smith/...")
+  // survive word-splitting, and use POSIX separators so the command string stays
+  // immune to JSON-escape corruption if settings.json is hand-edited.
   const hookCommand = (scriptPath: string): string => {
+    const quoted = `"${toPosix(scriptPath)}"`;
     if (env.isWSL) {
-      return `wsl node --no-warnings ${scriptPath}`;
+      return `wsl node --no-warnings ${quoted}`;
     }
-    return `node --no-warnings ${scriptPath}`;
+    return `node --no-warnings ${quoted}`;
   };
 
-  if (!hooks.SessionStart) {
+  const hookEntry = (scriptPath: string, timeoutSeconds: number) => ({
+    type: "command" as const,
+    command: hookCommand(scriptPath),
+    timeout: timeoutSeconds,
+  });
+
+  // If a previous init wrote the old flat-object hook shape (or nothing at
+  // all), replace it with the correct array-of-matcher-groups schema.
+  // Arrays are left alone so users who have customized their hook config
+  // don't get clobbered.
+  if (!Array.isArray(hooks.SessionStart)) {
     const scriptPath = join(env.buildDir, "src", "hooks", "session-start.js");
-    hooks.SessionStart = {
-      command: hookCommand(scriptPath),
-      matcher: "startup|resume|compact",
-      timeout: 10000,
-    };
+    hooks.SessionStart = [
+      {
+        matcher: "startup|resume|compact",
+        hooks: [hookEntry(scriptPath, 10)],
+      },
+    ];
   }
 
-  if (!hooks.PreCompact) {
+  if (!Array.isArray(hooks.PreCompact)) {
     const scriptPath = join(env.buildDir, "src", "hooks", "pre-compact.js");
-    hooks.PreCompact = {
-      command: hookCommand(scriptPath),
-      timeout: 30000,
-    };
+    hooks.PreCompact = [
+      {
+        hooks: [hookEntry(scriptPath, 30)],
+      },
+    ];
   }
 
-  if (!hooks.Stop) {
+  if (!Array.isArray(hooks.Stop)) {
     const scriptPath = join(env.buildDir, "src", "hooks", "stop.js");
-    hooks.Stop = {
-      command: hookCommand(scriptPath),
-      timeout: 10000,
-    };
+    hooks.Stop = [
+      {
+        hooks: [hookEntry(scriptPath, 10)],
+      },
+    ];
   }
 
   writeJsonFile(env.settingsPath, settings);
