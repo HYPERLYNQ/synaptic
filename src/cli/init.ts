@@ -8,7 +8,7 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { homedir } from "node:os";
-import { execSync } from "node:child_process";
+import { execSync, spawnSync } from "node:child_process";
 import { createInterface } from "node:readline";
 
 // ── Types ──────────────────────────────────────────────────────────────
@@ -74,9 +74,12 @@ export async function initCommand(args: string[]): Promise<void> {
   process.stdout.write("  [2/3] Enabling MCP server...         ");
   setupSettingsLocal(env);
 
-  // Step 3: Hooks
-  process.stdout.write("  [3/3] Installing lifecycle hooks...   ");
-  setupHooks(env);
+  // Step 3: Register plugin in client settings
+  // (Hooks themselves are declared in .claude-plugin/plugin.json now;
+  // this step only registers the MCP server, marketplace source, and
+  // enabledPlugins entry for non-plugin clients and hybrid setups.)
+  process.stdout.write("  [3/3] Registering plugin in client...");
+  registerPluginInClientSettings(env);
 
   // Git hooks (project-level only)
   if (!isGlobal) {
@@ -84,6 +87,12 @@ export async function initCommand(args: string[]): Promise<void> {
     setupCommitMsgHook(env);
     setupProjectDir();
   }
+
+  // Prune unused onnxruntime binaries (~493 MB savings).
+  // Runs unconditionally at the end of init so npm-direct users get the
+  // same disk savings as plugin-installed users. Best-effort — never
+  // fails init if the prune is unavailable or fails.
+  runPrune();
 
   console.log("\n  Setup complete. Restart Claude Code to activate.\n");
 
@@ -131,6 +140,36 @@ function ask(question: string): Promise<string> {
       resolve(answer.trim());
     });
   });
+}
+
+// ── Prune onnxruntime binaries ─────────────────────────────────────────
+
+function runPrune(): void {
+  // The prune script lives in the package's `scripts/` directory next to
+  // the build output. Resolve relative to this compiled file's location
+  // so it works whether init is invoked from the npm-installed package
+  // or from a local clone via `node build/src/cli.js init`.
+  // build/src/cli/init.js → ../../../scripts/prune-onnxruntime-binaries.cjs
+  const here = resolve(import.meta.dirname);
+  const prunePath = resolve(
+    here,
+    "..",
+    "..",
+    "..",
+    "scripts",
+    "prune-onnxruntime-binaries.cjs",
+  );
+
+  if (!existsSync(prunePath)) {
+    // Script missing (unusual local layout) — silently skip. No regression
+    // from previous behavior; users just don't get the optimization.
+    return;
+  }
+
+  // spawnSync (not execSync) so we never go through a shell. Path is
+  // internal, but defense in depth is cheap.
+  spawnSync(process.execPath, [prunePath], { stdio: "inherit" });
+  // Prune failure is non-fatal — install is functional, just bigger.
 }
 
 // ── Helpers (private) ──────────────────────────────────────────────────
@@ -243,12 +282,32 @@ function setupSettingsLocal(env: Environment): void {
   console.log("done");
 }
 
-function setupHooks(env: Environment): void {
+/**
+ * Register synaptic in the user's Claude Code settings.json so that:
+ *   1. Non-plugin MCP clients (Claude desktop, VS Code, etc.) can find
+ *      the synaptic MCP server via the user-level mcpServers entry.
+ *   2. The synaptic source directory is registered as a local plugin
+ *      marketplace so users running `synaptic init` from a clone can
+ *      enable the plugin without re-fetching it from a remote source.
+ *
+ * **This function NO LONGER writes hooks.** As of v1.3.0 the hooks are
+ * declared in `.claude-plugin/plugin.json` and dispatched by the plugin
+ * system's hook-launcher, so writing them to user settings would only
+ * cause every hook to fire twice (once via the plugin, once via the
+ * user-settings entry). Existing user-settings hook entries from prior
+ * versions of `synaptic init` should be removed by hand if you've
+ * upgraded; future runs of `synaptic init` will not re-create them.
+ */
+function registerPluginInClientSettings(env: Environment): void {
   const settings = readJsonFile(env.settingsPath);
 
   const buildDirPosix = toPosix(env.buildDir);
 
-  // Also register MCP server in settings.json for VS Code compatibility
+  // Register MCP server in settings.json for VS Code / Claude desktop /
+  // any non-plugin MCP client. Pattern D's plugin-managed install lives
+  // in CLAUDE_PLUGIN_DATA, but this entry points at the user's local
+  // npm install so other clients can still use it without going through
+  // the Claude Code plugin system.
   if (!settings.mcpServers || typeof settings.mcpServers !== "object") {
     settings.mcpServers = {};
   }
@@ -259,7 +318,10 @@ function setupHooks(env: Environment): void {
     type: "stdio",
   };
 
-  // Register as a plugin source so the plugin system can find it
+  // Register as a local-directory marketplace so the plugin system can
+  // discover synaptic from this clone (alongside any community-marketplace
+  // install). Harmless for users who don't use Claude Code's plugin
+  // system, useful for hybrid (npm + plugin) setups.
   if (!settings.extraKnownMarketplaces || typeof settings.extraKnownMarketplaces !== "object") {
     settings.extraKnownMarketplaces = {};
   }
@@ -267,66 +329,11 @@ function setupHooks(env: Environment): void {
     source: { source: "directory", path: buildDirPosix },
   };
 
-  // Enable the synaptic plugin
+  // Enable the synaptic plugin from the local marketplace registered above.
   if (!settings.enabledPlugins || typeof settings.enabledPlugins !== "object") {
     settings.enabledPlugins = {};
   }
   (settings.enabledPlugins as Record<string, boolean>)["synaptic@synaptic"] = true;
-
-  if (!settings.hooks || typeof settings.hooks !== "object") {
-    settings.hooks = {};
-  }
-
-  const hooks = settings.hooks as Record<string, unknown>;
-
-  // Shell-quote the script path so paths with spaces (e.g. "C:/Users/John Smith/...")
-  // survive word-splitting, and use POSIX separators so the command string stays
-  // immune to JSON-escape corruption if settings.json is hand-edited.
-  const hookCommand = (scriptPath: string): string => {
-    const quoted = `"${toPosix(scriptPath)}"`;
-    if (env.isWSL) {
-      return `wsl node --no-warnings ${quoted}`;
-    }
-    return `node --no-warnings ${quoted}`;
-  };
-
-  const hookEntry = (scriptPath: string, timeoutSeconds: number) => ({
-    type: "command" as const,
-    command: hookCommand(scriptPath),
-    timeout: timeoutSeconds,
-  });
-
-  // If a previous init wrote the old flat-object hook shape (or nothing at
-  // all), replace it with the correct array-of-matcher-groups schema.
-  // Arrays are left alone so users who have customized their hook config
-  // don't get clobbered.
-  if (!Array.isArray(hooks.SessionStart)) {
-    const scriptPath = join(env.buildDir, "src", "hooks", "session-start.js");
-    hooks.SessionStart = [
-      {
-        matcher: "startup|resume|compact",
-        hooks: [hookEntry(scriptPath, 10)],
-      },
-    ];
-  }
-
-  if (!Array.isArray(hooks.PreCompact)) {
-    const scriptPath = join(env.buildDir, "src", "hooks", "pre-compact.js");
-    hooks.PreCompact = [
-      {
-        hooks: [hookEntry(scriptPath, 30)],
-      },
-    ];
-  }
-
-  if (!Array.isArray(hooks.Stop)) {
-    const scriptPath = join(env.buildDir, "src", "hooks", "stop.js");
-    hooks.Stop = [
-      {
-        hooks: [hookEntry(scriptPath, 10)],
-      },
-    ];
-  }
 
   writeJsonFile(env.settingsPath, settings);
   console.log("done");

@@ -23,10 +23,12 @@ Usage:
   synaptic [command] [options]
 
 Commands:
-  init          Initialize synaptic (default if no command given)
-  serve         Start the MCP server (used by Claude Code plugin system)
-  sync          Manage GitHub-based context sync
-  cleanup       Smart duplicate detection and cleanup
+  init                       Initialize synaptic (default if no command given)
+  serve                      Start the MCP server (used by Claude Code plugin system)
+  hook <name>                Run a lifecycle hook (session-start | pre-compact | stop)
+  prune                      Prune unused onnxruntime binaries (saves ~493 MB)
+  sync                       Manage GitHub-based context sync
+  cleanup                    Smart duplicate detection and cleanup
 
 Options:
   -h, --help    Show this help message
@@ -59,6 +61,56 @@ async function main() {
       startBackgroundServices();
       getEmbedder().warmup().catch(() => {});
       break;
+    }
+    case "hook": {
+      // Run a lifecycle hook by name — used by the plugin system's
+      // hook-launcher to dispatch hook events into synaptic without spawning
+      // separate node processes per hook script.
+      const hookName = args[1];
+      if (!hookName) {
+        console.error("Usage: synaptic hook <session-start|pre-compact|stop>");
+        process.exit(1);
+      }
+      switch (hookName) {
+        case "session-start": {
+          const { runSessionStart } = await import("./hooks/session-start.js");
+          await runSessionStart();
+          break;
+        }
+        case "pre-compact": {
+          const { runPreCompact } = await import("./hooks/pre-compact.js");
+          await runPreCompact();
+          break;
+        }
+        case "stop": {
+          const { runStop } = await import("./hooks/stop.js");
+          await runStop();
+          break;
+        }
+        default:
+          console.error(`Unknown hook: ${hookName}`);
+          console.error("Valid hooks: session-start, pre-compact, stop");
+          process.exit(1);
+      }
+      break;
+    }
+    case "prune": {
+      // Run the onnxruntime prune script. We use spawnSync to a child node
+      // process rather than `import("...")` because the script is CJS and
+      // the synaptic CLI is ESM — mixing the two via dynamic import is
+      // possible but the spawn boundary keeps behavior identical to npm
+      // postinstall and the launcher install path.
+      const { spawnSync } = await import("node:child_process");
+      const { fileURLToPath } = await import("node:url");
+      const { dirname, join } = await import("node:path");
+      // build/src/cli.js → ../scripts/prune-onnxruntime-binaries.cjs
+      // (npm install lands the script at <pkg>/scripts/prune-onnxruntime-binaries.cjs)
+      const here = dirname(fileURLToPath(import.meta.url));
+      const prunePath = join(here, "..", "..", "scripts", "prune-onnxruntime-binaries.cjs");
+      const result = spawnSync(process.execPath, [prunePath], {
+        stdio: "inherit",
+      });
+      process.exit(typeof result.status === "number" ? result.status : 0);
     }
     case "sync":
       await syncCommand(args.slice(1));

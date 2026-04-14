@@ -1,7 +1,7 @@
 {
   "name": "synaptic",
   "description": "Persistent local memory for Claude Code — cross-session context, semantic search, zero cloud",
-  "version": "0.9.9",
+  "version": "1.3.0",
   "author": {
     "name": "HYPERLYNQ",
     "email": "hyperlynq@gmail.com"
@@ -17,5 +17,41 @@
     "semantic-search",
     "claude-code",
     "model-context-protocol"
-  ]
+  ],
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/.claude-plugin/hook-launcher.cjs session-start",
+            "timeout": 60
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/.claude-plugin/hook-launcher.cjs pre-compact",
+            "timeout": 60
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/.claude-plugin/hook-launcher.cjs stop",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
 }
