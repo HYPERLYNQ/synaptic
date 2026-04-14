@@ -1,0 +1,30 @@
+{
+  "name": "synaptic",
+  "owner": {
+    "name": "HYPERLYNQ",
+    "email": "hyperlynq@gmail.com"
+  },
+  "metadata": {
+    "description": "Persistent local memory for Claude Code — cross-session context, semantic search, zero cloud."
+  },
+  "plugins": [
+    {
+      "name": "synaptic",
+      "source": "./",
+      "description": "Persistent local memory for Claude Code — cross-session context recall, semantic search, zero cloud. The plugin auto-installs the synaptic npm package into Claude Code's plugin data directory on first session start (no separate `npm install -g` required).",
+      "homepage": "https://github.com/HYPERLYNQ/synaptic",
+      "repository": "https://github.com/HYPERLYNQ/synaptic",
+      "license": "SEE LICENSE IN LICENSE",
+      "category": "productivity",
+      "keywords": [
+        "memory",
+        "context",
+        "mcp",
+        "persistent-memory",
+        "semantic-search",
+        "claude-code",
+        "model-context-protocol"
+      ]
+    }
+  ]
+}

@@ -166,7 +166,13 @@ async function scanTranscript(
   writeCursor({ file: transcriptFile, offset: newOffset });
 }
 
-async function main(): Promise<void> {
+/**
+ * Run the PreCompact hook. Scans the active transcript for missed
+ * insights/corrections, saves them, and writes a compaction snapshot.
+ * Safe to call as a library function from `synaptic hook pre-compact`
+ * or as a standalone script.
+ */
+export async function runPreCompact(): Promise<void> {
   ensureDirs();
 
   let input: PreCompactInput = { trigger: "auto" };
@@ -235,7 +241,11 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((err) => {
-  process.stderr.write(`pre-compact hook error: ${err}\n`);
-  process.exit(0);
-});
+// Standalone entry point: only auto-run when invoked directly as a script.
+import { fileURLToPath } from "node:url";
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  runPreCompact().catch((err) => {
+    process.stderr.write(`pre-compact hook error: ${err}\n`);
+    process.exit(0);
+  });
+}

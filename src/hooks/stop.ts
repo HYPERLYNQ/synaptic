@@ -269,7 +269,12 @@ function checkRuleViolations(
   }
 }
 
-async function main(): Promise<void> {
+/**
+ * Run the Stop hook. Scans the transcript for new insights, runs hybrid
+ * extraction, and (debounced) writes a handoff. Safe to call as a library
+ * function from `synaptic hook stop` or as a standalone script.
+ */
+export async function runStop(): Promise<void> {
   ensureDirs();
 
   let input: StopInput = {};
@@ -688,7 +693,11 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((err) => {
-  process.stderr.write(`stop hook error: ${err}\n`);
-  process.exit(0);
-});
+// Standalone entry point: only auto-run when invoked directly as a script.
+import { fileURLToPath } from "node:url";
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  runStop().catch((err) => {
+    process.stderr.write(`stop hook error: ${err}\n`);
+    process.exit(0);
+  });
+}

@@ -13,7 +13,7 @@
 
 **Claude forgets everything between sessions. Synaptic fixes that.**
 
-[![Version](https://img.shields.io/badge/version-1.2.0-blue)](https://github.com/HYPERLYNQ/synaptic/releases)
+[![Version](https://img.shields.io/badge/version-1.3.0-blue)](https://github.com/HYPERLYNQ/synaptic/releases)
 [![npm](https://img.shields.io/npm/v/@hyperlynq/synaptic)](https://www.npmjs.com/package/@hyperlynq/synaptic)
 [![Tests](https://img.shields.io/badge/tests-245%20passing-brightgreen)](https://github.com/HYPERLYNQ/synaptic)
 [![Node](https://img.shields.io/badge/node-22%2B-339933)](https://nodejs.org)
@@ -103,30 +103,75 @@ Claude's auto-memory (`~/.claude/memory/`) saves short notes to files. But there
 
 ### Install
 
+Synaptic ships as a Claude Code plugin. The recommended install is one command:
+
 ```bash
-npx @hyperlynq/synaptic
+/plugin marketplace add HYPERLYNQ/synaptic
+/plugin install synaptic@synaptic
 ```
 
-That's it. One command, zero config. Synaptic auto-detects your environment (Linux, macOS, WSL) and sets up everything:
+That's it. Restart Claude Code and Synaptic is ready. The plugin handles everything automatically:
 
-- **MCP server** — registered in `~/.mcp.json` so Claude can use Synaptic's tools
-- **3 lifecycle hooks** — auto-load on start, preserve on compress, save on stop
-- **Cross-machine sync** — prompted at the end of setup (requires [GitHub CLI](https://cli.github.com/))
+- **Auto-installs** the synaptic npm package into Claude Code's plugin data directory on first session start (one-time, ~20 seconds — see "First-run cost" below)
+- **Auto-prunes** unused onnxruntime binaries, keeping the install at ~239 MB instead of 732 MB
+- **Auto-wires** the MCP server and lifecycle hooks via `.claude-plugin/plugin.json`
+- **Auto-updates** when you run `/plugin marketplace update synaptic` after a new release
 
+No separate `npm install -g` step. No `synaptic init` to remember. No hand-editing `settings.json`.
+
+<br>
+
+<details>
+<summary><strong>First-run cost</strong></summary>
+
+<br>
+
+The first session after install triggers a one-time `npm install` into `${CLAUDE_PLUGIN_DATA}/node_modules`:
+
+| Phase | Time |
+|:------|:-----|
+| Plugin install (clone + cache copy) | <1 second |
+| First-session npm install (`@hyperlynq/synaptic` + deps + onnxruntime prune) | ~15-30 seconds |
+| Subsequent session starts | instant |
+
+The install runs once per `plugin.json.version`. Bumping the version on a `/plugin marketplace update` triggers a re-install; otherwise the cached install persists across sessions. The cached install lives in `~/.claude/plugins/data/synaptic-<marketplace>/` and survives plugin updates.
+
+If `npm` is not on `PATH`, the launcher will print a clear error in Claude Code's plugin errors panel.
+
+</details>
+
+<br>
+
+<details>
+<summary><strong>Install from npm directly (legacy / non-Claude Code clients)</strong></summary>
+
+<br>
+
+If you're using synaptic outside Claude Code (e.g. as an MCP server in Claude desktop, VS Code, or another MCP client), or you want a globally installed `synaptic` CLI:
+
+```bash
+npm install -g @hyperlynq/synaptic
+synaptic init
 ```
-  Setting up Synaptic...
 
-  [1/2] Registering MCP server...      done
-  [2/2] Installing lifecycle hooks...   done
+`synaptic init` registers the MCP server in `~/.claude/settings.json` so non-plugin clients can find it, and sets up project dirs and optional sync. It does **not** install hooks — those are managed by the plugin system in v1.3.0+.
 
-  Setup complete. Restart Claude Code to activate.
+If you're on Claude Code, prefer the plugin install above. The plugin path manages hooks, updates, and cross-platform native binaries automatically.
 
-  Enable cross-machine sync? (requires GitHub CLI) [y/N]
-```
+</details>
 
-Restart Claude Code after setup. The `mcp__synaptic__context_*` tools will be available immediately.
+<br>
 
-> **Project-level setup** — Run `npx @hyperlynq/synaptic init` (without `--global`) inside a git repo to also install pre-commit and commit-msg hooks.
+<details>
+<summary><strong>Cross-platform notes</strong></summary>
+
+<br>
+
+Synaptic depends on native modules (`sqlite-vec`, `sharp`) that are platform-specific. The plugin install handles this automatically because `npm install` resolves the right binaries for the current Node runtime.
+
+If you use synaptic in **both Windows and WSL** on the same machine, you need separate installs for each — the Windows-compiled native modules won't run under Linux and vice versa. The plugin path handles this transparently because each platform's plugin data directory gets its own install. The npm-global install path requires running `npm install -g` once per platform.
+
+</details>
 
 <br>
 
@@ -140,30 +185,9 @@ git clone https://github.com/HYPERLYNQ/synaptic.git
 cd synaptic
 npm install
 npm run build
-node build/src/cli.js
-```
-
-</details>
-
-<br>
-
-<details>
-<summary><strong>Manual MCP setup</strong></summary>
-
-<br>
-
-Add to `~/.mcp.json`:
-
-```json
-{
-  "mcpServers": {
-    "synaptic": {
-      "command": "node",
-      "args": ["--no-warnings", "/path/to/synaptic/build/src/index.js"],
-      "type": "stdio"
-    }
-  }
-}
+# Use the local clone as a directory-based plugin marketplace:
+/plugin marketplace add /path/to/synaptic
+/plugin install synaptic@synaptic
 ```
 
 </details>

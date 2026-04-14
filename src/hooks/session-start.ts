@@ -30,7 +30,13 @@ interface SessionStartInput {
   source: string;
 }
 
-async function main(): Promise<void> {
+/**
+ * Run the SessionStart hook. Reads JSON from stdin, builds the context
+ * injection, and writes it to stdout. Safe to call as a library function
+ * from the CLI's `synaptic hook session-start` command, or as a standalone
+ * script via the bottom-of-file entry-point check.
+ */
+export async function runSessionStart(): Promise<void> {
   ensureDirs();
 
   const currentProject = detectProject();
@@ -362,7 +368,12 @@ function buildContextLines(
   return lines;
 }
 
-main().catch((err) => {
-  process.stderr.write(`session-start hook error: ${err}\n`);
-  process.exit(1);
-});
+// Standalone entry point: only auto-run when invoked directly as a script,
+// not when imported by the CLI's `hook` subcommand.
+import { fileURLToPath } from "node:url";
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  runSessionStart().catch((err) => {
+    process.stderr.write(`session-start hook error: ${err}\n`);
+    process.exit(1);
+  });
+}

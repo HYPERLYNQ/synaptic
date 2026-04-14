@@ -1,6 +1,8 @@
 {
-  "synaptic": {
-    "command": "synaptic",
-    "args": ["serve"]
+  "mcpServers": {
+    "synaptic": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/.claude-plugin/launcher.cjs"]
+    }
   }
 }

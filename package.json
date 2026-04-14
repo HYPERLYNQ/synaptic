@@ -1,6 +1,6 @@
 {
   "name": "@hyperlynq/synaptic",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "Persistent local memory for Claude Code — cross-session context recall, semantic search, zero cloud",
   "type": "module",
   "main": "build/src/index.js",
@@ -13,7 +13,7 @@
     "build/scripts/rebuild-index.d.ts",
     ".claude-plugin/",
     ".mcp.json",
-    "hooks/",
+    "scripts/prune-onnxruntime-binaries.cjs",
     "LICENSE",
     "README.md"
   ],
@@ -24,7 +24,7 @@
     "test:search": "npm run build && node build/scripts/test-search.js",
     "test:cleanup": "npm run build && node build/scripts/test-cleanup.js",
     "test:all": "npm run build && node build/scripts/smoke-test.js && node build/scripts/test-search.js && node build/scripts/test-cleanup.js",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build && node scripts/sync-plugin-version.cjs"
   },
   "keywords": [
     "claude",
