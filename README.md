@@ -13,9 +13,9 @@
 
 **Claude forgets everything between sessions. Synaptic fixes that.**
 
-[![Version](https://img.shields.io/badge/version-1.3.0-blue)](https://github.com/HYPERLYNQ/synaptic/releases)
+[![Version](https://img.shields.io/badge/version-1.4.0-blue)](https://github.com/HYPERLYNQ/synaptic/releases)
 [![npm](https://img.shields.io/npm/v/@hyperlynq/synaptic)](https://www.npmjs.com/package/@hyperlynq/synaptic)
-[![Tests](https://img.shields.io/badge/tests-245%20passing-brightgreen)](https://github.com/HYPERLYNQ/synaptic)
+[![Tests](https://img.shields.io/badge/tests-273%20passing-brightgreen)](https://github.com/HYPERLYNQ/synaptic)
 [![Node](https://img.shields.io/badge/node-22%2B-339933)](https://nodejs.org)
 [![License](https://img.shields.io/badge/license-source--available-orange)](LICENSE)
 
@@ -536,10 +536,11 @@ Interested in Synaptic for your team? **[Get in touch →](mailto:hyperlynq@gmai
 
 ```bash
 npm run build            # Compile TypeScript
+npm test                 # Run vitest unit tests (28)
 npm run smoke-test       # Build + run core tests (175)
 npm run test:search      # Search expansion + multi-pass tests (53)
 npm run test:cleanup     # Smart dedup + cleanup tests (17)
-npm run test:all         # Build + run all 245 tests
+npm run test:all         # Build + run all 273 tests (vitest + smoke + search + cleanup)
 ```
 
 <br>
