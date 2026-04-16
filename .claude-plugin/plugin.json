@@ -63,6 +63,17 @@
           }
         ]
       }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/.claude-plugin/hook-launcher.cjs post-tool-use",
+            "timeout": 10
+          }
+        ]
+      }
     ]
   }
 }

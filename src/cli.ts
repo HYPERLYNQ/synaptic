@@ -25,7 +25,7 @@ Usage:
 Commands:
   init                       Initialize synaptic (default if no command given)
   serve                      Start the MCP server (used by Claude Code plugin system)
-  hook <name>                Run a lifecycle hook (session-start | pre-compact | stop | user-prompt-submit)
+  hook <name>                Run a lifecycle hook (session-start | pre-compact | stop | user-prompt-submit | post-tool-use)
   prune                      Prune unused onnxruntime binaries (saves ~493 MB)
   sync                       Manage GitHub-based context sync
   cleanup                    Smart duplicate detection and cleanup
@@ -68,7 +68,7 @@ async function main() {
       // separate node processes per hook script.
       const hookName = args[1];
       if (!hookName) {
-        console.error("Usage: synaptic hook <session-start|pre-compact|stop|user-prompt-submit>");
+        console.error("Usage: synaptic hook <session-start|pre-compact|stop|user-prompt-submit|post-tool-use>");
         process.exit(1);
       }
       switch (hookName) {
@@ -92,9 +92,14 @@ async function main() {
           await runUserPromptSubmit();
           break;
         }
+        case "post-tool-use": {
+          const { runPostToolUse } = await import("./hooks/post-tool-use.js");
+          await runPostToolUse();
+          break;
+        }
         default:
           console.error(`Unknown hook: ${hookName}`);
-          console.error("Valid hooks: session-start, pre-compact, stop, user-prompt-submit");
+          console.error("Valid hooks: session-start, pre-compact, stop, user-prompt-submit, post-tool-use");
           process.exit(1);
       }
       break;

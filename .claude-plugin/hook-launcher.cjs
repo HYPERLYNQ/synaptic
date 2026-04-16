@@ -31,7 +31,13 @@
 const { spawnSync } = require("node:child_process");
 const lib = require("./lib.cjs");
 
-const VALID_HOOKS = new Set(["session-start", "pre-compact", "stop", "user-prompt-submit"]);
+const VALID_HOOKS = new Set([
+  "session-start",
+  "pre-compact",
+  "stop",
+  "user-prompt-submit",
+  "post-tool-use",
+]);
 
 const hookName = process.argv[2];
 if (!hookName) {
