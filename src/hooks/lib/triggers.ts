@@ -1,14 +1,21 @@
+// 200 is deliberately generous: save-intent phrases in practice are < 60 chars,
+// but a short quoted snippet in a longer question (e.g. "why does 'save progress'
+// not trigger?") shouldn't be treated as real intent. 200 blocks mid-paragraph
+// false hits without clipping realistic explicit triggers.
 const MAX_PROMPT_LENGTH = 200;
 
-const COMMAND_PATTERN = /^\s*\/checkpoint(?:\s+(.+?))?\s*$/i;
+const COMMAND_PATTERN = /^\/checkpoint(?:\s+(.+?))?$/i;
 
+// Each pattern must describe an unambiguous save intent. Patterns like "wrap up"
+// and "save my state/work" were considered but dropped: they fire on ordinary
+// Claude conversation ("please wrap up your response", "save my work in progress")
+// and the false-positive cost outweighs the marginal recall benefit. Users who
+// want those can always type `/checkpoint` explicitly.
 const NL_PATTERNS: RegExp[] = [
   /\bsave\s+(?:the\s+)?progress\b/i,
   /\bsave\s+the\s+game\b/i,
   /\b(?:create|make)\s+a\s+checkpoint\b/i,
   /\bcheckpoint\s+(?:this|here|now)\b/i,
-  /\b(?:let'?s\s+)?wrap\s+(?:this\s+)?up\b/i,
-  /\bsave\s+(?:our|my)\s+(?:state|context|work)\b/i,
 ];
 
 export type DetectedIntent =

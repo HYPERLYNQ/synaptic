@@ -34,17 +34,28 @@ describe("detectSaveIntent — natural-language triggers", () => {
     expect(detectSaveIntent("can you save the progress").matched).toBe(true);
   });
 
-  it("matches 'checkpoint this' / 'create a checkpoint'", () => {
-    expect(detectSaveIntent("checkpoint this").matched).toBe(true);
-    expect(detectSaveIntent("create a checkpoint").matched).toBe(true);
-  });
-
   it("matches 'save the game' (game-style)", () => {
     expect(detectSaveIntent("save the game").matched).toBe(true);
   });
 
-  it("matches 'wrap up'", () => {
-    expect(detectSaveIntent("let's wrap up here").matched).toBe(true);
+  it("matches 'create a checkpoint'", () => {
+    expect(detectSaveIntent("create a checkpoint").matched).toBe(true);
+  });
+
+  it("matches 'make a checkpoint'", () => {
+    expect(detectSaveIntent("make a checkpoint").matched).toBe(true);
+  });
+
+  it("matches 'checkpoint this'", () => {
+    expect(detectSaveIntent("checkpoint this").matched).toBe(true);
+  });
+
+  it("matches 'checkpoint here'", () => {
+    expect(detectSaveIntent("checkpoint here").matched).toBe(true);
+  });
+
+  it("matches 'checkpoint now'", () => {
+    expect(detectSaveIntent("checkpoint now").matched).toBe(true);
   });
 });
 
@@ -55,6 +66,16 @@ describe("detectSaveIntent — false-positive guards", () => {
 
   it("does NOT match 'save the date'", () => {
     expect(detectSaveIntent("save the date for the meeting").matched).toBe(false);
+  });
+
+  it("does NOT match 'wrap up your response' (dropped wrap-up pattern)", () => {
+    expect(detectSaveIntent("please wrap up your response").matched).toBe(false);
+    expect(detectSaveIntent("let's wrap up here").matched).toBe(false);
+  });
+
+  it("does NOT match 'save my work/state' (dropped save-my-state pattern)", () => {
+    expect(detectSaveIntent("save my work in progress").matched).toBe(false);
+    expect(detectSaveIntent("I need to save my state of mind").matched).toBe(false);
   });
 
   it("does NOT match unrelated prompts", () => {
