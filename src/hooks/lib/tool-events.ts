@@ -24,15 +24,16 @@ function classifyBash(event: ToolEventInput): ClassifiedEvent | null {
   const isCommit = /^\s*git\s+(?:.*\s)?commit\b/.test(command);
   if (!isCommit) return null;
 
-  // Heuristic: a real successful commit prints "[branch hash]" in stdout. Empty stdout
-  // or "nothing to commit" stderr means the commit didn't happen.
-  if (!/\[[^\]]+\s+[0-9a-f]{6,}\]/.test(stdout)) return null;
   if (/nothing to commit/i.test(stderr) || /nothing to commit/i.test(stdout)) return null;
 
-  const messageMatch = /commit\s+-m\s+["'](.+?)["']/.exec(command);
-  const subject = messageMatch ? messageMatch[1] : command.slice(0, 200);
-  const hashMatch = /\[[^\]]+\s+([0-9a-f]{6,})\]/.exec(stdout);
-  const hash = hashMatch ? hashMatch[1] : "unknown";
+  // Extract hash + subject from stdout rather than from the command string. Git's
+  // success output "[branch hash] subject" is stable across every commit form
+  // (-m, -am, --amend, -F file, heredoc forms). Parsing the command string
+  // misses heredoc-style messages and yields meaningless subjects.
+  const stdoutMatch = /\[[^\]]+\s+([0-9a-f]{6,})\]\s*(.*)/.exec(stdout);
+  if (!stdoutMatch) return null;
+  const hash = stdoutMatch[1];
+  const subject = stdoutMatch[2].trim() || command.slice(0, 200);
 
   return {
     kind: "git-commit",

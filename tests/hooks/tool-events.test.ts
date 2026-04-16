@@ -33,6 +33,33 @@ describe("classifyToolEvent — git commit", () => {
       })
     ).toBeNull();
   });
+
+  it("extracts the real subject from stdout even for heredoc-style commits", () => {
+    const r = classifyToolEvent({
+      tool_name: "Bash",
+      tool_input: {
+        command: "git commit -m \"$(echo 'feat: the heredoc payload')\"",
+      },
+      tool_response: {
+        stdout: "[feat/branch def4567] feat: the heredoc payload\n 2 files changed",
+        stderr: "",
+      },
+    });
+    expect(r).not.toBeNull();
+    expect(r!.summary).toContain("feat: the heredoc payload");
+    expect(r!.summary).not.toContain("$(");
+    expect(r!.tags).toContain("commit:def4567");
+  });
+
+  it("extracts the subject for `git commit -am`", () => {
+    const r = classifyToolEvent({
+      tool_name: "Bash",
+      tool_input: { command: "git commit -am 'fix: combined flag'" },
+      tool_response: { stdout: "[main 9abcdef] fix: combined flag\n", stderr: "" },
+    });
+    expect(r!.summary).toContain("fix: combined flag");
+    expect(r!.tags).toContain("commit:9abcdef");
+  });
 });
 
 describe("classifyToolEvent — plan write", () => {
