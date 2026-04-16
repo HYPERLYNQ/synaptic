@@ -15,15 +15,19 @@ export async function saveHandoff(args: SaveHandoffArgs): Promise<{ id: string }
   entry.pinned = args.pinned ?? false;
 
   const index = new ContextIndex();
-  const rowid = index.insert(entry);
-
   try {
-    const embedder = new Embedder();
-    const embedding = await embedder.embed(args.content);
-    index.insertVec(rowid, embedding);
-  } catch (err) {
-    console.error("[save-handoff] embedding failed (entry still saved):", err);
-  }
+    const rowid = index.insert(entry);
 
-  return { id: entry.id };
+    try {
+      const embedder = new Embedder();
+      const embedding = await embedder.embed(args.content);
+      index.insertVec(rowid, embedding);
+    } catch (err) {
+      console.error("[save-handoff] embedding failed (entry still saved):", err);
+    }
+
+    return { id: entry.id };
+  } finally {
+    index.close();
+  }
 }
