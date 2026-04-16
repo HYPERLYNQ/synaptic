@@ -25,7 +25,7 @@ Usage:
 Commands:
   init                       Initialize synaptic (default if no command given)
   serve                      Start the MCP server (used by Claude Code plugin system)
-  hook <name>                Run a lifecycle hook (session-start | pre-compact | stop)
+  hook <name>                Run a lifecycle hook (session-start | pre-compact | stop | user-prompt-submit)
   prune                      Prune unused onnxruntime binaries (saves ~493 MB)
   sync                       Manage GitHub-based context sync
   cleanup                    Smart duplicate detection and cleanup
@@ -68,7 +68,7 @@ async function main() {
       // separate node processes per hook script.
       const hookName = args[1];
       if (!hookName) {
-        console.error("Usage: synaptic hook <session-start|pre-compact|stop>");
+        console.error("Usage: synaptic hook <session-start|pre-compact|stop|user-prompt-submit>");
         process.exit(1);
       }
       switch (hookName) {
