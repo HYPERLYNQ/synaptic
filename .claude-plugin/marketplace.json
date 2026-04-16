@@ -23,7 +23,9 @@
         "persistent-memory",
         "semantic-search",
         "claude-code",
-        "model-context-protocol"
+        "model-context-protocol",
+        "checkpoint",
+        "auto-save"
       ]
     }
   ]

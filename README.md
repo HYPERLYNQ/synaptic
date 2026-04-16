@@ -454,7 +454,7 @@ Requires the `gh` CLI (already installed for most developers). All data flows th
 
 Synaptic runs as an **MCP server** — the standard way to extend Claude with new capabilities.
 
-Three hooks handle the lifecycle automatically:
+Five hooks handle the lifecycle automatically:
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
@@ -462,8 +462,13 @@ Three hooks handle the lifecycle automatically:
 │   START ────→  Smart auto-recall, rules, violation           │
 │                warnings, predicted focus, recent context      │
 │                                                              │
-│   WORK ─────→  Claude saves and searches context             │
-│                Git watcher auto-indexes in background         │
+│   PROMPT ───→  Save-intent detection on every user turn      │
+│                ("save progress", "/checkpoint [name]")        │
+│                Explicit checkpoints pinned for later recall   │
+│                                                              │
+│   TOOL USE ─→  Auto-save on significant artifacts:           │
+│                successful git commits, plan file writes       │
+│                Silent — handoffs accumulate in background     │
 │                                                              │
 │   COMPRESS ─→  Preserves important context before            │
 │                conversation is compressed                     │
