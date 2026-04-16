@@ -87,9 +87,14 @@ async function main() {
           await runStop();
           break;
         }
+        case "user-prompt-submit": {
+          const { runUserPromptSubmit } = await import("./hooks/user-prompt-submit.js");
+          await runUserPromptSubmit();
+          break;
+        }
         default:
           console.error(`Unknown hook: ${hookName}`);
-          console.error("Valid hooks: session-start, pre-compact, stop");
+          console.error("Valid hooks: session-start, pre-compact, stop, user-prompt-submit");
           process.exit(1);
       }
       break;
