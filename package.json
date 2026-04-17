@@ -20,6 +20,7 @@
   ],
   "scripts": {
     "build": "tsc",
+    "migrate:v1.5.0": "node scripts/migrate-v1.5.0.cjs",
     "rebuild-index": "node build/scripts/rebuild-index.js",
     "smoke-test": "npm run build && node build/scripts/smoke-test.js",
     "test": "vitest run",
