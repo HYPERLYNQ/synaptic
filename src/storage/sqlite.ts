@@ -170,12 +170,39 @@ export class ContextIndex {
       )
     `);
     this.db.exec("CREATE INDEX IF NOT EXISTS idx_file_pairs_lookup ON file_pairs(project, file_a)");
+
+    // v1.5.0 migration: checkpoint fields
+    const hasName = columns.some((col) => col.name === "name");
+    if (!hasName) {
+      this.db.exec("ALTER TABLE entries ADD COLUMN name TEXT");
+      this.db.exec("ALTER TABLE entries ADD COLUMN summary TEXT");
+      this.db.exec("ALTER TABLE entries ADD COLUMN project_root TEXT");
+      this.db.exec("ALTER TABLE entries ADD COLUMN referenced_entry_ids TEXT");
+      this.db.exec(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_entries_name ON entries(name) WHERE name IS NOT NULL"
+      );
+      this.db.exec(
+        "CREATE INDEX IF NOT EXISTS idx_entries_project_root ON entries(project_root)"
+      );
+      this.db.exec(
+        "CREATE INDEX IF NOT EXISTS idx_entries_pinned_filtered ON entries(pinned) WHERE pinned = 1"
+      );
+    }
   }
 
   insert(entry: ContextEntry): number {
+    // Enforce name uniqueness: if a different entry already has this name, throw.
+    if (entry.name != null) {
+      const conflict = this.db.prepare(
+        "SELECT id FROM entries WHERE name = ? AND id != ?"
+      ).get(entry.name, entry.id) as { id: string } | undefined;
+      if (conflict) {
+        throw new Error(`UNIQUE constraint failed: entries.name (value: ${entry.name})`);
+      }
+    }
     const stmt = this.db.prepare(`
-      INSERT OR REPLACE INTO entries (id, date, time, type, tags, content, source_file, tier, access_count, last_accessed, pinned, archived, label, project, session_id, agent_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT OR REPLACE INTO entries (id, date, time, type, tags, content, source_file, tier, access_count, last_accessed, pinned, archived, label, project, session_id, agent_id, name, summary, project_root, referenced_entry_ids)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     stmt.run(
       entry.id,
@@ -193,7 +220,11 @@ export class ContextIndex {
       (entry as any).label ?? null,
       entry.project ?? null,
       entry.sessionId ?? null,
-      entry.agentId ?? null
+      entry.agentId ?? null,
+      entry.name ?? null,
+      entry.summary ?? null,
+      entry.projectRoot ?? null,
+      entry.referencedEntryIds ? JSON.stringify(entry.referencedEntryIds) : null
     );
     const row = this.db.prepare("SELECT last_insert_rowid() as rowid").get() as Record<string, unknown>;
     return row.rowid as number;
@@ -1358,6 +1389,53 @@ export class ContextIndex {
     this.db.prepare(
       "UPDATE entries SET tags = ? WHERE id = ?"
     ).run([...allTags].join(", "), targetId);
+  }
+
+  private rowToEntry(row: Record<string, unknown>): ContextEntry {
+    const refs = row.referenced_entry_ids
+      ? JSON.parse(String(row.referenced_entry_ids)) as string[]
+      : undefined;
+    return {
+      id: String(row.id),
+      date: String(row.date),
+      time: String(row.time),
+      type: String(row.type),
+      tags: String(row.tags ?? "").split(",").map(s => s.trim()).filter(Boolean),
+      content: String(row.content ?? ""),
+      sourceFile: String(row.source_file ?? ""),
+      tier: (row.tier as ContextEntry["tier"]) ?? undefined,
+      pinned: Boolean(row.pinned),
+      archived: Boolean(row.archived),
+      project: (row.project as string | null) ?? null,
+      sessionId: (row.session_id as string | null) ?? null,
+      agentId: (row.agent_id as string | null) ?? null,
+      name: (row.name as string | null) ?? undefined,
+      summary: (row.summary as string | null) ?? undefined,
+      projectRoot: (row.project_root as string | null) ?? undefined,
+      referencedEntryIds: refs,
+    };
+  }
+
+  findCheckpointByName(name: string): ContextEntry | null {
+    const row = this.db.prepare(
+      "SELECT * FROM entries WHERE name = ? AND archived = 0 LIMIT 1"
+    ).get(name) as Record<string, unknown> | undefined;
+    if (!row) return null;
+    return this.rowToEntry(row);
+  }
+
+  listCheckpoints(opts: { projectRoot?: string; limit?: number } = {}): ContextEntry[] {
+    const limit = opts.limit ?? 20;
+    const params: (string | number)[] = [];
+    let sql = "SELECT * FROM entries WHERE type = 'checkpoint' AND archived = 0";
+    if (opts.projectRoot) {
+      sql += " AND project_root = ?";
+      params.push(opts.projectRoot);
+    }
+    sql += " ORDER BY date DESC, time DESC LIMIT ?";
+    params.push(limit);
+    const rows = this.db.prepare(sql).all(...params) as Array<Record<string, unknown>>;
+    return rows.map(r => this.rowToEntry(r));
   }
 
   /** Change tier for an entry */
