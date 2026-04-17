@@ -36,7 +36,7 @@ interface SessionStartInput {
  * from the CLI's `synaptic hook session-start` command, or as a standalone
  * script via the bottom-of-file entry-point check.
  */
-export async function runSessionStart(): Promise<void> {
+export async function runSessionStart(stdin: AsyncIterable<unknown> = process.stdin): Promise<void> {
   ensureDirs();
 
   const currentProject = detectProject();
@@ -44,7 +44,7 @@ export async function runSessionStart(): Promise<void> {
   let input: SessionStartInput = { source: "startup" };
   try {
     const chunks: Buffer[] = [];
-    for await (const chunk of process.stdin) {
+    for await (const chunk of stdin) {
       chunks.push(chunk as Buffer);
     }
     const raw = Buffer.concat(chunks).toString("utf-8").trim();
@@ -79,7 +79,7 @@ export async function runSessionStart(): Promise<void> {
     const maintenance = runMaintenance(index);
 
     // === PHASE 1: Build context from DB reads (fast) and output immediately ===
-    const lines = buildContextLines(index, currentProject, maintenance);
+    const lines = await buildContextLines(index, currentProject, maintenance);
 
     if (lines.length > 1) {
       process.stdout.write(lines.join("\n"));
@@ -115,11 +115,11 @@ export async function runSessionStart(): Promise<void> {
   }
 }
 
-function buildContextLines(
+async function buildContextLines(
   index: ContextIndex,
   currentProject: string | null,
   maintenance: ReturnType<typeof runMaintenance>
-): string[] {
+): Promise<string[]> {
   const lines: string[] = [];
   let charCount = 0;
 
@@ -212,14 +212,37 @@ function buildContextLines(
     budgetForContext.push("");
   }
 
-  // --- SECTION 3: Recent handoff (1 only) ---
+  // --- SECTION 3: Recent Handoff + Checkpoints (smart-ranked, project-aware) ---
   const budgetForHandoff: string[] = [];
-  const handoffs = index.list({ days: 7, type: "handoff" }).slice(0, 1);
-  if (handoffs.length > 0) {
-    const h = handoffs[0];
-    budgetForHandoff.push("## Recent Handoff");
-    budgetForHandoff.push(`- ${h.date.slice(5)} ${h.time}: ${h.content}`);
-    budgetForHandoff.push("");
+  {
+    const { rankEntries } = await import("../lib/scoring.js");
+    const { detectProjectRoot } = await import("../lib/project-root.js");
+    const currentRoot = detectProjectRoot(process.cwd());
+
+    const handoffs = index.list({ days: 14, type: "handoff" });
+    const checkpoints = index.listCheckpoints({ limit: 30 });
+    const candidates = [...handoffs, ...checkpoints]
+      .filter(e => !e.archived && (e.content?.length ?? 0) >= 100)
+      .map(e => ({
+        id: e.id,
+        content: e.content,
+        projectRoot: e.projectRoot ?? null,
+        tags: e.tags,
+        pinned: !!e.pinned,
+        createdAtMs: new Date(e.date + "T" + (e.time ?? "00:00") + ":00").getTime(),
+        ref: e,
+      }));
+
+    const ranked = rankEntries(candidates, currentRoot).slice(0, 3);
+    if (ranked.length > 0) {
+      budgetForHandoff.push("## Recent Handoff");
+      for (const c of ranked) {
+        const r = (c as any).ref;
+        const label = r.type === "checkpoint" && r.name ? r.name : r.type;
+        budgetForHandoff.push(`- ${r.date.slice(5)} ${r.time} [${label}]: ${r.content.slice(0, 400)}`);
+      }
+      budgetForHandoff.push("");
+    }
   }
 
   // --- SECTION 4: Recurring patterns ---
