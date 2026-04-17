@@ -15,7 +15,7 @@
 
 [![Version](https://img.shields.io/badge/version-1.5.0-blue)](https://github.com/HYPERLYNQ/synaptic/releases)
 [![npm](https://img.shields.io/npm/v/@hyperlynq/synaptic)](https://www.npmjs.com/package/@hyperlynq/synaptic)
-[![Tests](https://img.shields.io/badge/tests-273%20passing-brightgreen)](https://github.com/HYPERLYNQ/synaptic)
+[![Tests](https://img.shields.io/badge/tests-79%20passing-brightgreen)](https://github.com/HYPERLYNQ/synaptic)
 [![Node](https://img.shields.io/badge/node-22%2B-339933)](https://nodejs.org)
 [![License](https://img.shields.io/badge/license-source--available-orange)](LICENSE)
 
@@ -212,7 +212,7 @@ The Stop hook no longer writes content-less aggregation handoffs. PostToolUse an
 
 ## Features
 
-### 14 Tools for Claude
+### 15 Tools for Claude
 
 <table>
 <tr>
@@ -257,11 +257,22 @@ The Stop hook no longer writes content-less aggregation handoffs. PostToolUse an
 |:-----|:--------|
 | `context_session` | View session history |
 | `context_chain` | Trace decision threads |
+| `context_load` | Load a saved checkpoint *(v1.5.0)* |
 | `context_resolve_pattern` | Dismiss recurring alerts |
 
 </td>
 </tr>
 </table>
+
+<br>
+
+### 3 Slash Commands
+
+| Command | Purpose |
+|:--------|:--------|
+| `/checkpoint <name>` | Save a named, pinned save-point of the current session |
+| `/checkpoints` | List recent checkpoints for the current project |
+| `/load <name>` | Inject a saved checkpoint + its references into the conversation |
 
 <br>
 
@@ -355,6 +366,38 @@ Rules aren't just suggestions — Synaptic enforces them at multiple levels:
 ⚠ RECENT RULE VIOLATIONS — you broke these rules recently, be extra careful:
 - Rule "no-co-author": commit message contained "Co-Authored-By" (today)
 ```
+
+<br>
+
+### Checkpoints *(v1.5.0)*
+
+A named, pinnable save-point of the session state. Unlike handoffs (which are session-end summaries) and progress entries (which are status snapshots), checkpoints are **addressable save files**: give them a name, load them back by name later.
+
+**How they get created:**
+
+- **Explicit** — `/checkpoint <name>` mid-session, or say something like "save progress" and Synaptic's `UserPromptSubmit` hook matches the intent
+- **Automatic on commit** — a `PostToolUse` hook catches `git commit` and saves a checkpoint named after the commit subject slug (e.g. `feat-phase-5-ui-components`), tagged with the sha for dedupe
+- **Automatic on plan/spec writes** — writes to `docs/superpowers/plans/*.md` or `docs/superpowers/specs/*.md` also auto-checkpoint
+
+Every checkpoint records its `projectRoot` (absolute path of the git toplevel at save time), enabling project-aware recall.
+
+**How to load one back:**
+
+```
+/load <name>
+```
+
+This calls the `context_load` MCP tool, which returns the checkpoint's narrative body plus any referenced entries (the cluster of insights/decisions from the same session). Claude injects the bundle into the current conversation. `/checkpoints` lists recent ones scoped to the current project.
+
+**Smart SessionStart recall** — the "Recent Handoff" panel at session start now ranks handoffs + checkpoints together by:
+
+```
+0.35 * length    +    0.35 * project-match    +    0.15 * pinned    +    0.15 * recency
+```
+
+Content-length caps at 500 chars, project-match is 1.0 for `projectRoot` equality or 0.3 for tag overlap, recency uses a 3-day exponential half-life. Entries shorter than 100 chars are filtered before ranking — content-less aggregation handoffs can't crowd out real narrative ones anymore.
+
+**Stop hook gate** — sessions that had no meaningful events (no commit, no checkpoint, no decision, no plan/spec write) don't produce a handoff at all. No more empty summaries polluting the recall panel.
 
 <br>
 
