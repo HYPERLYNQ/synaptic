@@ -18,6 +18,7 @@ import { contextSession, contextSessionSchema } from "./tools/context-session.js
 import { contextCochanges, contextCochangesSchema } from "./tools/context-cochanges.js";
 import { contextDna, contextDnaSchema } from "./tools/context-dna.js";
 import { contextChain, contextChainSchema } from "./tools/context-chain.js";
+import { contextLoad } from "./tools/context-load.js";
 import { GitWatcher } from "./storage/watcher.js";
 import { SyncScheduler } from "./storage/sync-background.js";
 
@@ -238,6 +239,18 @@ export function createServer(): McpServer {
     contextChainSchema,
     async (args) => {
       const result = contextChain(args, index);
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+      };
+    }
+  );
+
+  server.tool(
+    "context_load",
+    "Load a checkpoint by name. Returns the checkpoint narrative and referenced entries.",
+    { name: z.string().describe("Exact or partial checkpoint name to look up") },
+    async (args) => {
+      const result = await contextLoad({ name: args.name });
       return {
         content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
       };
