@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.6.0 — 2026-04-17
+
+### Changed (breaking)
+- Slash commands renamed for consistency (verb-first, checkpoint-suffixed):
+  - `/checkpoint <name>` → `/save-checkpoint <name>`
+  - `/checkpoints` → `/list-checkpoints`
+  - `/load <name>` → `/load-checkpoint <name>`
+- Internal `UserPromptSubmit` hook still matches the literal `/checkpoint` text emitted by the slash-command body, so auto-save behavior is unchanged.
+
 ## 1.5.0 — 2026-04-16
 
 ### Added

@@ -13,7 +13,7 @@
 
 **Claude forgets everything between sessions. Synaptic fixes that.**
 
-[![Version](https://img.shields.io/badge/version-1.5.0-blue)](https://github.com/HYPERLYNQ/synaptic/releases)
+[![Version](https://img.shields.io/badge/version-1.6.0-blue)](https://github.com/HYPERLYNQ/synaptic/releases)
 [![npm](https://img.shields.io/npm/v/@hyperlynq/synaptic)](https://www.npmjs.com/package/@hyperlynq/synaptic)
 [![Tests](https://img.shields.io/badge/tests-79%20passing-brightgreen)](https://github.com/HYPERLYNQ/synaptic)
 [![Node](https://img.shields.io/badge/node-22%2B-339933)](https://nodejs.org)
@@ -270,9 +270,9 @@ The Stop hook no longer writes content-less aggregation handoffs. PostToolUse an
 
 | Command | Purpose |
 |:--------|:--------|
-| `/checkpoint <name>` | Save a named, pinned save-point of the current session |
-| `/checkpoints` | List recent checkpoints for the current project |
-| `/load <name>` | Inject a saved checkpoint + its references into the conversation |
+| `/save-checkpoint <name>` | Save a named, pinned save-point of the current session |
+| `/list-checkpoints` | List recent checkpoints for the current project |
+| `/load-checkpoint <name>` | Inject a saved checkpoint + its references into the conversation |
 
 <br>
 
@@ -375,7 +375,7 @@ A named, pinnable save-point of the session state. Unlike handoffs (which are se
 
 **How they get created:**
 
-- **Explicit** — `/checkpoint <name>` mid-session, or say something like "save progress" and Synaptic's `UserPromptSubmit` hook matches the intent
+- **Explicit** — `/save-checkpoint <name>` mid-session, or say something like "save progress" and Synaptic's `UserPromptSubmit` hook matches the intent
 - **Automatic on commit** — a `PostToolUse` hook catches `git commit` and saves a checkpoint named after the commit subject slug (e.g. `feat-phase-5-ui-components`), tagged with the sha for dedupe
 - **Automatic on plan/spec writes** — writes to `docs/superpowers/plans/*.md` or `docs/superpowers/specs/*.md` also auto-checkpoint
 
@@ -384,10 +384,10 @@ Every checkpoint records its `projectRoot` (absolute path of the git toplevel at
 **How to load one back:**
 
 ```
-/load <name>
+/load-checkpoint <name>
 ```
 
-This calls the `context_load` MCP tool, which returns the checkpoint's narrative body plus any referenced entries (the cluster of insights/decisions from the same session). Claude injects the bundle into the current conversation. `/checkpoints` lists recent ones scoped to the current project.
+This calls the `context_load` MCP tool, which returns the checkpoint's narrative body plus any referenced entries (the cluster of insights/decisions from the same session). Claude injects the bundle into the current conversation. `/list-checkpoints` lists recent ones scoped to the current project.
 
 **Smart SessionStart recall** — the "Recent Handoff" panel at session start now ranks handoffs + checkpoints together by:
 
@@ -518,7 +518,7 @@ Five hooks handle the lifecycle automatically:
 │                warnings, predicted focus, recent context      │
 │                                                              │
 │   PROMPT ───→  Save-intent detection on every user turn      │
-│                ("save progress", "/checkpoint [name]")        │
+│                ("save progress", "/save-checkpoint [name]")   │
 │                Explicit checkpoints pinned for later recall   │
 │                                                              │
 │   TOOL USE ─→  Auto-save on significant artifacts:           │
