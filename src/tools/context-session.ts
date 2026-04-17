@@ -9,7 +9,7 @@ export const contextSessionSchema = {
     .optional()
     .describe("Session ID to query. Defaults to current session."),
   type: z
-    .enum(["decision", "progress", "issue", "handoff", "insight", "reference", "git_commit", "rule"])
+    .enum(["decision", "progress", "issue", "handoff", "insight", "reference", "git_commit", "rule", "checkpoint"])
     .optional()
     .describe("Filter by entry type"),
 };

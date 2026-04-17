@@ -6,7 +6,7 @@ import { getCurrentProject } from "../server.js";
 export const contextSearchSchema = {
   query: z.string().max(10_000).describe("Search query (hybrid semantic + keyword search)"),
   type: z
-    .enum(["decision", "progress", "issue", "handoff", "insight", "reference", "git_commit", "rule"])
+    .enum(["decision", "progress", "issue", "handoff", "insight", "reference", "git_commit", "rule", "checkpoint"])
     .optional()
     .describe("Filter by entry type"),
   days: z

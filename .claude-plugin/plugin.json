@@ -1,7 +1,7 @@
 {
   "name": "synaptic",
   "description": "Persistent local memory for Claude Code — cross-session context, semantic search, zero cloud",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "author": {
     "name": "HYPERLYNQ",
     "email": "hyperlynq@gmail.com"
@@ -16,7 +16,10 @@
     "persistent-memory",
     "semantic-search",
     "claude-code",
-    "model-context-protocol"
+    "model-context-protocol",
+    "checkpoint",
+    "auto-save",
+    "project-aware"
   ],
   "hooks": {
     "SessionStart": [
@@ -66,6 +69,7 @@
     ],
     "PostToolUse": [
       {
+        "matcher": "Bash|Write|Edit",
         "hooks": [
           {
             "type": "command",

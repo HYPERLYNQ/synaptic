@@ -8,7 +8,7 @@ import { getSessionId } from "../storage/session.js";
 export const contextSaveSchema = {
   content: z.string().max(100_000).describe("The context content to save"),
   type: z
-    .enum(["decision", "progress", "issue", "handoff", "insight", "reference", "git_commit", "rule"])
+    .enum(["decision", "progress", "issue", "handoff", "insight", "reference", "git_commit", "rule", "checkpoint"])
     .describe("Type of context entry"),
   tags: z
     .array(z.string().max(100))

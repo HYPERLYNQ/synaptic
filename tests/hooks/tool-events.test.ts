@@ -109,3 +109,56 @@ describe("classifyToolEvent — non-significant tools", () => {
     ).toBeNull();
   });
 });
+
+describe("classifyToolEvent — v1.5.0 extensions", () => {
+  it("classifies spec writes under docs/superpowers/specs", () => {
+    const r = classifyToolEvent({
+      tool_name: "Write",
+      tool_input: { file_path: "/home/u/p/docs/superpowers/specs/2026-04-16-foo.md" },
+      tool_response: {},
+    });
+    expect(r).not.toBeNull();
+    expect(r!.kind).toBe("spec-write");
+    expect(r!.tags).toContain("trigger:spec-write");
+  });
+
+  it("classifies Edit on plan files same as Write", () => {
+    const r = classifyToolEvent({
+      tool_name: "Edit",
+      tool_input: { file_path: "/home/u/p/docs/superpowers/plans/2026-04-16-bar.md" },
+      tool_response: {},
+    });
+    expect(r).not.toBeNull();
+    expect(r!.kind).toBe("plan-write");
+  });
+
+  it("derives a checkpoint name slug from commit subject", () => {
+    const r = classifyToolEvent({
+      tool_name: "Bash",
+      tool_input: { command: 'git commit -m "feat(phase5): UI components"' },
+      tool_response: { stdout: "[main abc1234] feat(phase5): UI components\n" },
+    });
+    expect(r).not.toBeNull();
+    expect(r!.kind).toBe("git-commit");
+    expect(r!.name).toBe("feat-phase5-ui-components");
+    expect(r!.tags).toContain("commit:abc1234");
+  });
+
+  it("skips commit with --amend", () => {
+    const r = classifyToolEvent({
+      tool_name: "Bash",
+      tool_input: { command: "git commit --amend --no-edit" },
+      tool_response: { stdout: "" },
+    });
+    expect(r).toBeNull();
+  });
+
+  it("skips interactive rebase commit", () => {
+    const r = classifyToolEvent({
+      tool_name: "Bash",
+      tool_input: { command: "git commit -i" },
+      tool_response: { stdout: "" },
+    });
+    expect(r).toBeNull();
+  });
+});

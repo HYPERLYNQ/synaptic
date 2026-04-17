@@ -37,6 +37,8 @@ const DEBOUNCE_MS = 5 * 60 * 1000; // 5 minutes
 
 interface StopInput {
   stop_hook_active?: boolean;
+  session_id?: string;
+  cwd?: string;
 }
 
 function shouldDebounce(): boolean {
@@ -274,13 +276,13 @@ function checkRuleViolations(
  * extraction, and (debounced) writes a handoff. Safe to call as a library
  * function from `synaptic hook stop` or as a standalone script.
  */
-export async function runStop(): Promise<void> {
+export async function runStop(stdin: AsyncIterable<unknown> = process.stdin): Promise<void> {
   ensureDirs();
 
   let input: StopInput = {};
   try {
     const chunks: Buffer[] = [];
-    for await (const chunk of process.stdin) {
+    for await (const chunk of stdin) {
       chunks.push(chunk as Buffer);
     }
     const raw = Buffer.concat(chunks).toString("utf-8").trim();
@@ -300,11 +302,12 @@ export async function runStop(): Promise<void> {
   const index = new ContextIndex();
   const embedder = new Embedder();
 
+  const effectiveSessionId = input.session_id ?? getSessionId();
   const enrichInsert = (entry: import("../storage/markdown.js").ContextEntry): number => {
     return index.insert({
       ...entry,
       project: detectProject() ?? undefined,
-      sessionId: getSessionId(),
+      sessionId: effectiveSessionId,
       agentId: "system",
     });
   };
@@ -375,6 +378,13 @@ export async function runStop(): Promise<void> {
 
     // Debounce: skip handoff if one was saved recently
     if (shouldDebounce()) {
+      return;
+    }
+
+    // v1.5.0 gate: skip the handoff write when the session had no meaningful events.
+    const { countMeaningfulSessionEvents } = await import("./lib/session-events.js");
+    const meaningfulCount = countMeaningfulSessionEvents(index, effectiveSessionId);
+    if (meaningfulCount < 1) {
       return;
     }
 
@@ -659,9 +669,17 @@ export async function runStop(): Promise<void> {
 
     const content = contentParts.join("\n");
 
+    // v1.5.0 gate: refuse to write content-less aggregation handoffs.
+    if (content.trim().length < 100) {
+      return;
+    }
+
     // Cap tags to prevent bloat — keep only the most relevant project/topic tags
     const cappedTags = tagList.slice(0, 15);
-    const entry = appendEntry(content, "handoff", cappedTags);
+    const { detectProjectRoot } = await import("../lib/project-root.js");
+    const entry = appendEntry(content, "handoff", cappedTags, {
+      projectRoot: detectProjectRoot(process.cwd()),
+    });
     entry.tier = ContextIndex.assignTier(entry.type);
     const rowid = enrichInsert(entry);
     const embedding = await embedder.embed(entry.content);

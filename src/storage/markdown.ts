@@ -18,6 +18,10 @@ export interface ContextEntry {
   project?: string | null;
   sessionId?: string | null;
   agentId?: string | null;
+  name?: string;
+  summary?: string;
+  projectRoot?: string;
+  referencedEntryIds?: string[];
 }
 
 function generateId(): string {
@@ -34,10 +38,19 @@ function formatDate(): string {
   return now.toISOString().slice(0, 10); // YYYY-MM-DD
 }
 
+export interface AppendEntryMeta {
+  name?: string;
+  summary?: string;
+  projectRoot?: string;
+  referencedEntryIds?: string[];
+  pinned?: boolean;
+}
+
 export function appendEntry(
   content: string,
   type: string,
-  tags: string[]
+  tags: string[],
+  meta: AppendEntryMeta = {}
 ): ContextEntry {
   const date = formatDate();
   const time = formatTime();
@@ -52,11 +65,27 @@ export function appendEntry(
     fileContent = `# Context Log: ${date}\n`;
   }
 
-  const entryBlock = `\n## ${time} | ${type} | ${tagStr}\n<!-- id:${id} -->\n${content}\n`;
+  const metaLines: string[] = [`<!-- id:${id} -->`];
+  if (meta.name)         metaLines.push(`<!-- name:${meta.name} -->`);
+  if (meta.summary)      metaLines.push(`<!-- summary:${meta.summary} -->`);
+  if (meta.projectRoot)  metaLines.push(`<!-- projectRoot:${meta.projectRoot} -->`);
+  if (meta.referencedEntryIds && meta.referencedEntryIds.length > 0) {
+    metaLines.push(`<!-- refs:${meta.referencedEntryIds.join(",")} -->`);
+  }
+  if (meta.pinned)       metaLines.push(`<!-- pinned:1 -->`);
+
+  const entryBlock = `\n## ${time} | ${type} | ${tagStr}\n${metaLines.join("\n")}\n${content}\n`;
   fileContent += entryBlock;
   writeFileSync(filePath, fileContent, "utf-8");
 
-  return { id, date, time, type, tags, content, sourceFile: filePath };
+  return {
+    id, date, time, type, tags, content, sourceFile: filePath,
+    name: meta.name,
+    summary: meta.summary,
+    projectRoot: meta.projectRoot,
+    referencedEntryIds: meta.referencedEntryIds,
+    pinned: meta.pinned,
+  };
 }
 
 export function parseMarkdownFile(filePath: string): ContextEntry[] {
@@ -87,7 +116,6 @@ export function parseMarkdownText(
     const header = section.slice(0, headerEnd).trim();
     const body = section.slice(headerEnd + 1).trim();
 
-    // Parse header: "HH:MM | type | tags"
     const parts = header.split("|").map((s) => s.trim());
     if (parts.length < 2) continue;
 
@@ -98,14 +126,24 @@ export function parseMarkdownText(
       ? tagStr.split(",").map((t) => t.trim()).filter(Boolean)
       : [];
 
-    // Extract id from <!-- id:xxx --> comment
-    const idMatch = body.match(/<!-- id:(\S+) -->/);
+    const idMatch      = body.match(/<!--\s*id:(\S+?)\s*-->/);
+    const nameMatch    = body.match(/<!--\s*name:(\S+?)\s*-->/);
+    const summaryMatch = body.match(/<!--\s*summary:(.*?)\s*-->/);
+    const rootMatch    = body.match(/<!--\s*projectRoot:(.+?)\s*-->/);
+    const refsMatch    = body.match(/<!--\s*refs:(.+?)\s*-->/);
+    const pinnedMatch  = body.match(/<!--\s*pinned:1\s*-->/);
+
     const id = idMatch?.[1] ?? generateId();
+    const content = body.replace(/<!--[^>]*-->\s*/g, "").trim();
 
-    // Content is everything after the id comment (or all of body if no id)
-    const content = body.replace(/<!-- id:\S+ -->\n?/, "").trim();
+    const entry: ContextEntry = { id, date, time, type, tags, content, sourceFile };
+    if (nameMatch)    entry.name = nameMatch[1];
+    if (summaryMatch) entry.summary = summaryMatch[1];
+    if (rootMatch)    entry.projectRoot = rootMatch[1];
+    if (refsMatch)    entry.referencedEntryIds = refsMatch[1].split(",").map(s => s.trim()).filter(Boolean);
+    if (pinnedMatch)  entry.pinned = true;
 
-    entries.push({ id, date, time, type, tags, content, sourceFile });
+    entries.push(entry);
   }
 
   return entries;

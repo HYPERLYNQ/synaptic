@@ -2,7 +2,7 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import { mkdirSync } from "node:fs";
 
-const BASE_DIR = join(homedir(), ".claude-context");
+const BASE_DIR = join(process.env.SYNAPTIC_HOME ?? homedir(), ".claude-context");
 export const CONTEXT_DIR = join(BASE_DIR, "context");
 export const DB_DIR = join(BASE_DIR, "db");
 export const DB_PATH = join(DB_DIR, "context.db");
