@@ -1388,6 +1388,8 @@ export class ContextIndex {
       content: String(row.content ?? ""),
       sourceFile: String(row.source_file ?? ""),
       tier: (row.tier as ContextEntry["tier"]) ?? undefined,
+      accessCount: (row.access_count as number) ?? 0,
+      lastAccessed: (row.last_accessed as string | null) ?? null,
       pinned: Boolean(row.pinned),
       archived: Boolean(row.archived),
       project: (row.project as string | null) ?? null,
