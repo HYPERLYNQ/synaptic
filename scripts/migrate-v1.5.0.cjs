@@ -12,7 +12,8 @@ const { DatabaseSync } = require("node:sqlite");
 const { homedir } = require("node:os");
 const { join } = require("node:path");
 
-const DB_PATH = join(homedir(), ".synaptic", "context.db");
+const BASE_DIR = join(process.env.SYNAPTIC_HOME || homedir(), ".claude-context");
+const DB_PATH = join(BASE_DIR, "db", "context.db");
 const DRY_RUN = process.argv.includes("--dry-run");
 
 // Known project name -> absolute path heuristics. Extend as needed.
