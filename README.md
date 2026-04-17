@@ -13,7 +13,7 @@
 
 **Claude forgets everything between sessions. Synaptic fixes that.**
 
-[![Version](https://img.shields.io/badge/version-1.4.0-blue)](https://github.com/HYPERLYNQ/synaptic/releases)
+[![Version](https://img.shields.io/badge/version-1.5.0-blue)](https://github.com/HYPERLYNQ/synaptic/releases)
 [![npm](https://img.shields.io/npm/v/@hyperlynq/synaptic)](https://www.npmjs.com/package/@hyperlynq/synaptic)
 [![Tests](https://img.shields.io/badge/tests-273%20passing-brightgreen)](https://github.com/HYPERLYNQ/synaptic)
 [![Node](https://img.shields.io/badge/node-22%2B-339933)](https://nodejs.org)
@@ -191,6 +191,18 @@ npm run build
 ```
 
 </details>
+
+<br>
+
+---
+
+<br>
+
+## What's New
+
+### v1.5.0 — Automatic capture, smart recall (2026-04-16)
+
+The Stop hook no longer writes content-less aggregation handoffs. PostToolUse and UserPromptSubmit now save a first-class `checkpoint` type, pinned, with a derived name. `/load <name>` injects a saved checkpoint (plus its references) into the current conversation. SessionStart ranks candidates by content quality, project match, pinned, and recency — not blind recency. A session without a meaningful commit/plan/spec/checkpoint writes no handoff at all.
 
 <br>
 
