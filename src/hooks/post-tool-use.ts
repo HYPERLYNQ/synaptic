@@ -58,6 +58,8 @@ export async function runPostToolUse(stdin?: AsyncIterable<unknown>): Promise<vo
       content,
       tags,
       projectRoot,
+      sessionId: input.session_id,
+      agentId: "post-tool-use",
     });
   } catch (err) {
     console.error("[post-tool-use] save failed:", err);

@@ -483,7 +483,7 @@ export class ContextIndex {
     params.push(maxRows);
 
     const sql = `
-      SELECT id, date, time, type, tags, content, source_file, tier, access_count, last_accessed, pinned, archived, project, session_id, agent_id
+      SELECT id, date, time, type, tags, content, source_file, tier, access_count, last_accessed, pinned, archived, project, session_id, agent_id, name, summary, project_root, referenced_entry_ids
       FROM entries
       ${where}
       ORDER BY date DESC, time DESC
@@ -493,23 +493,7 @@ export class ContextIndex {
     const stmt = this.db.prepare(sql);
     const rows = stmt.all(...params) as Record<string, unknown>[];
 
-    return rows.map((row) => ({
-      id: row.id as string,
-      date: row.date as string,
-      time: row.time as string,
-      type: row.type as string,
-      tags: (row.tags as string).split(", ").filter(Boolean),
-      content: row.content as string,
-      sourceFile: row.source_file as string,
-      tier: row.tier as ContextEntry["tier"],
-      accessCount: row.access_count as number,
-      lastAccessed: row.last_accessed as string | null,
-      pinned: !!(row.pinned as number),
-      archived: !!(row.archived as number),
-      project: row.project as string | null,
-      sessionId: row.session_id as string | null,
-      agentId: row.agent_id as string | null,
-    }));
+    return rows.map((row) => this.rowToEntry(row));
   }
 
   status(): {

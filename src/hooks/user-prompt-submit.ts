@@ -63,7 +63,11 @@ export async function runUserPromptSubmit(stdin: AsyncIterable<unknown> = proces
   ];
 
   try {
-    const result = await saveCheckpoint({ name, summary, content, tags, projectRoot });
+    const result = await saveCheckpoint({
+      name, summary, content, tags, projectRoot,
+      sessionId: input.session_id,
+      agentId: "user-prompt-submit",
+    });
     process.stdout.write("💾 Saved checkpoint: " + name + " (" + result.id + ")\n");
   } catch (err) {
     console.error("[user-prompt-submit] save failed:", err);

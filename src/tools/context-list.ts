@@ -9,7 +9,7 @@ export const contextListSchema = {
     .default(7)
     .describe("List entries from last N days"),
   type: z
-    .enum(["decision", "progress", "issue", "handoff", "insight", "reference", "git_commit", "rule"])
+    .enum(["decision", "progress", "issue", "handoff", "insight", "reference", "git_commit", "rule", "checkpoint"])
     .optional()
     .describe("Filter by entry type"),
   include_archived: z
@@ -17,6 +17,16 @@ export const contextListSchema = {
     .optional()
     .default(false)
     .describe("Include archived entries in results"),
+  limit: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe("Maximum number of entries to return (applies to checkpoint listings; other types use the default window)"),
+  projectRoot: z
+    .string()
+    .optional()
+    .describe("Filter to a specific project root path (currently only used when type='checkpoint')"),
 };
 
 interface GroupedEntries {
@@ -31,10 +41,18 @@ interface GroupedEntries {
 }
 
 export function contextList(
-  args: { days?: number; type?: string; include_archived?: boolean },
+  args: {
+    days?: number;
+    type?: string;
+    include_archived?: boolean;
+    limit?: number;
+    projectRoot?: string;
+  },
   index: ContextIndex
 ): { groups: GroupedEntries[]; total: number } {
-  const entries = index.list({ days: args.days, type: args.type, includeArchived: args.include_archived });
+  const entries = args.type === "checkpoint"
+    ? index.listCheckpoints({ projectRoot: args.projectRoot, limit: args.limit })
+    : index.list({ days: args.days, type: args.type, includeArchived: args.include_archived });
 
   // Group by date
   const grouped = new Map<string, GroupedEntries>();

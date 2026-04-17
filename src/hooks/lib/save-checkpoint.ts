@@ -1,6 +1,8 @@
 import { appendEntry } from "../../storage/markdown.js";
 import { ContextIndex } from "../../storage/sqlite.js";
 import { Embedder } from "../../storage/embedder.js";
+import { getSessionId } from "../../storage/session.js";
+import { detectProject } from "../../storage/project.js";
 
 export interface SaveCheckpointArgs {
   name: string;
@@ -9,6 +11,8 @@ export interface SaveCheckpointArgs {
   tags: string[];
   projectRoot: string;
   referencedEntryIds?: string[];
+  sessionId?: string;
+  agentId?: string;
 }
 
 export interface SaveCheckpointResult {
@@ -33,6 +37,9 @@ export async function saveCheckpoint(args: SaveCheckpointArgs): Promise<SaveChec
       pinned: true,
     });
     entry.tier = ContextIndex.assignTier("checkpoint");
+    entry.sessionId = args.sessionId ?? getSessionId();
+    entry.agentId = args.agentId ?? "auto-save";
+    entry.project = detectProject() ?? undefined;
     const rowid = index.insert(entry);
 
     try {

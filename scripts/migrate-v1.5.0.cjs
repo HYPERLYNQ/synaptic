@@ -37,6 +37,35 @@ function main() {
       return;
     }
 
+    // 0. Ensure v1.5.0 columns exist. If the user runs this script before any hook
+    //    or the MCP server has opened the DB (i.e. fresh v1.4.0 → v1.5.0 upgrade),
+    //    the columns haven't been added yet. Add them defensively; each ALTER TABLE
+    //    is idempotent via try/catch (SQLite rejects duplicate ADD COLUMN).
+    const v15Columns = [
+      "ALTER TABLE entries ADD COLUMN name TEXT",
+      "ALTER TABLE entries ADD COLUMN summary TEXT",
+      "ALTER TABLE entries ADD COLUMN project_root TEXT",
+      "ALTER TABLE entries ADD COLUMN referenced_entry_ids TEXT",
+    ];
+    for (const sql of v15Columns) {
+      try { db.exec(sql); }
+      catch (err) {
+        // SQLite says "duplicate column name: X" when the column already exists.
+        if (!String(err.message || err).toLowerCase().includes("duplicate column")) {
+          throw err;
+        }
+      }
+    }
+    // Best-effort indexes — ignore "index already exists" errors.
+    const v15Indexes = [
+      "CREATE UNIQUE INDEX IF NOT EXISTS idx_entries_name ON entries(name) WHERE name IS NOT NULL",
+      "CREATE INDEX IF NOT EXISTS idx_entries_project_root ON entries(project_root)",
+      "CREATE INDEX IF NOT EXISTS idx_entries_pinned_filtered ON entries(pinned) WHERE pinned = 1",
+    ];
+    for (const sql of v15Indexes) {
+      try { db.exec(sql); } catch { /* best-effort */ }
+    }
+
     // 1. Backfill project_root via known-project tags.
     for (const [tagName, absPath] of Object.entries(KNOWN_PROJECTS)) {
       const rows = db.prepare(
@@ -53,18 +82,9 @@ function main() {
       }
     }
 
-    // 2. Archive legacy empty-count handoffs.
-    const empties = db.prepare(
-      "SELECT id FROM entries WHERE type = 'handoff' AND archived = 0 AND length(content) < 100"
-    ).all();
-    for (const row of empties) {
-      if (!DRY_RUN) {
-        db.prepare("UPDATE entries SET archived = 1 WHERE id = ?").run(row.id);
-      }
-      report.archivedEmpties++;
-    }
-
-    // 3. Convert v1.4.0 slash-command auto-saves to type='checkpoint'.
+    // 2. Convert v1.4.0 slash-command auto-saves to type='checkpoint'.
+    //    Run BEFORE the archive step so short slash-cmd entries don't get eaten
+    //    by the length<100 filter.
     const candidates = db.prepare(
       "SELECT id, content FROM entries WHERE type = 'handoff' AND tags LIKE '%trigger:checkpoint-cmd%' AND archived = 0"
     ).all();
@@ -79,6 +99,18 @@ function main() {
         ).run(name, row.id);
       }
       report.convertedCheckpoints++;
+    }
+
+    // 3. Archive legacy empty-count handoffs. Note: type='handoff' here EXCLUDES
+    //    the checkpoint rows we just converted in step 2.
+    const empties = db.prepare(
+      "SELECT id FROM entries WHERE type = 'handoff' AND archived = 0 AND length(content) < 100"
+    ).all();
+    for (const row of empties) {
+      if (!DRY_RUN) {
+        db.prepare("UPDATE entries SET archived = 1 WHERE id = ?").run(row.id);
+      }
+      report.archivedEmpties++;
     }
 
     console.log(JSON.stringify({ dryRun: DRY_RUN, ...report }, null, 2));

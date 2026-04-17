@@ -37,6 +37,8 @@ const DEBOUNCE_MS = 5 * 60 * 1000; // 5 minutes
 
 interface StopInput {
   stop_hook_active?: boolean;
+  session_id?: string;
+  cwd?: string;
 }
 
 function shouldDebounce(): boolean {
@@ -300,11 +302,12 @@ export async function runStop(stdin: AsyncIterable<unknown> = process.stdin): Pr
   const index = new ContextIndex();
   const embedder = new Embedder();
 
+  const effectiveSessionId = input.session_id ?? getSessionId();
   const enrichInsert = (entry: import("../storage/markdown.js").ContextEntry): number => {
     return index.insert({
       ...entry,
       project: detectProject() ?? undefined,
-      sessionId: getSessionId(),
+      sessionId: effectiveSessionId,
       agentId: "system",
     });
   };
@@ -380,7 +383,7 @@ export async function runStop(stdin: AsyncIterable<unknown> = process.stdin): Pr
 
     // v1.5.0 gate: skip the handoff write when the session had no meaningful events.
     const { countMeaningfulSessionEvents } = await import("./lib/session-events.js");
-    const meaningfulCount = countMeaningfulSessionEvents(index, getSessionId());
+    const meaningfulCount = countMeaningfulSessionEvents(index, effectiveSessionId);
     if (meaningfulCount < 1) {
       return;
     }
