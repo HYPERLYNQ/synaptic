@@ -1,5 +1,6 @@
 import { ContextIndex } from "../storage/sqlite.js";
 import { readSyncState } from "../storage/sync.js";
+import { getSyncTickStatus } from "../storage/sync-background.js";
 
 export function contextStatus(index: ContextIndex): {
   totalEntries: number;
@@ -17,6 +18,10 @@ export function contextStatus(index: ContextIndex): {
     lastPushAt: string | null;
     lastPullAt: string | null;
     knownMachines: number;
+    lastTickAt: string | null;
+    lastTickOk: boolean | null;
+    lastTickError: string | null;
+    isRunning: boolean;
   };
 } {
   const stats = index.status();
@@ -31,6 +36,7 @@ export function contextStatus(index: ContextIndex): {
   }
 
   const syncState = readSyncState();
+  const tick = getSyncTickStatus();
   const sync = {
     enabled: syncState?.config.enabled ?? false,
     machineId: syncState?.config.machineId ?? null,
@@ -39,6 +45,10 @@ export function contextStatus(index: ContextIndex): {
     lastPushAt: syncState?.lastPushAt ?? null,
     lastPullAt: syncState?.lastPullAt ?? null,
     knownMachines: syncState ? Object.keys(syncState.remoteCursors).length : 0,
+    lastTickAt: tick.lastTickAt,
+    lastTickOk: tick.lastTickOk,
+    lastTickError: tick.lastTickError,
+    isRunning: tick.isRunning,
   };
 
   return { ...stats, dbSizeHuman, sync };

@@ -11,7 +11,7 @@
     {
       "name": "synaptic",
       "source": "./",
-      "version": "1.5.0",
+      "version": "1.7.0",
       "description": "Persistent local memory for Claude Code — cross-session context recall, semantic search, zero cloud. The plugin auto-installs the synaptic npm package into Claude Code's plugin data directory on first session start (no separate `npm install -g` required).",
       "homepage": "https://github.com/HYPERLYNQ/synaptic",
       "repository": "https://github.com/HYPERLYNQ/synaptic",

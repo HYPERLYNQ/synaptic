@@ -24,6 +24,7 @@ import {
   syncCycle,
   type SyncState,
 } from "../storage/sync.js";
+import { readSyncLogTail, SYNC_LOG_PATH } from "../storage/sync-background.js";
 
 function generateMachineId(): string {
   return randomBytes(4).toString("hex");
@@ -145,6 +146,16 @@ async function syncStatus(): Promise<void> {
     for (const [id, cursor] of knownMachines) {
       console.log(`  ${id}: ${cursor} entries processed`);
     }
+  }
+
+  const tail = readSyncLogTail(10);
+  if (tail.length > 0) {
+    console.log(`\nRecent background ticks (${SYNC_LOG_PATH}):`);
+    for (const line of tail) {
+      console.log(`  ${line}`);
+    }
+  } else {
+    console.log("\nNo background tick log yet — the MCP server may not have run a tick in this install.");
   }
 }
 
