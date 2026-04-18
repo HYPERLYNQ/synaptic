@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 
+// MUST be the first import: exits early if a Windows-installed synaptic
+// is being executed under WSL (before any native-binding import crashes).
+import "./lib/platform-guard.js";
+
 // Suppress Node.js experimental warnings (e.g., SQLite)
 process.removeAllListeners("warning");
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

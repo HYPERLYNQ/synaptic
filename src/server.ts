@@ -1,3 +1,6 @@
+// MUST be the first import: exits early if a Windows-installed synaptic
+// is being executed under WSL (before any native-binding import crashes).
+import "./lib/platform-guard.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { ContextIndex } from "./storage/sqlite.js";

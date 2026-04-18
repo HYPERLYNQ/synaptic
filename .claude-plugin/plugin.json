@@ -1,7 +1,7 @@
 {
   "name": "synaptic",
   "description": "Persistent local memory for Claude Code — cross-session context, semantic search, zero cloud",
-  "version": "1.7.1",
+  "version": "1.7.2",
   "author": {
     "name": "HYPERLYNQ",
     "email": "hyperlynq@gmail.com"

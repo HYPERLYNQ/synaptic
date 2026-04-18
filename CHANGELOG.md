@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.7.2 — 2026-04-18
+
+### Fixed
+- CLI and MCP server now exit early with a clear, actionable error when a Windows-installed synaptic is executed under WSL, instead of crashing deep inside a native dependency with "Could not load the sharp module using the linux-x64 runtime". The guard fires when `process.platform === 'linux'` and the script path starts with `/mnt/<drive>/`, and tells the user to run `npm install -g @hyperlynq/synaptic` inside WSL. Windows-native and Linux-native installs are unaffected.
+
 ## 1.7.1 — 2026-04-18
 
 ### Fixed
