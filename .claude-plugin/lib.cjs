@@ -268,16 +268,25 @@ function performInstall(env, expectedVersion) {
     `installing @hyperlynq/synaptic@${expectedVersion} into plugin data dir (one-time, ~30s)…`,
   );
 
-  const npmCmd = process.platform === "win32" ? "npm.cmd" : "npm";
-  const result = spawnSync(
-    npmCmd,
-    ["install", "--omit=dev", "--no-audit", "--no-fund"],
-    {
-      cwd: env.PLUGIN_DATA,
-      stdio: ["ignore", "inherit", "inherit"],
-      env: process.env,
-    },
-  );
+  // Windows needs shell:true to spawn npm.cmd (CVE-2024-27980 mitigation
+  // in Node 18.20.2+/20.12.2+ refuses to launch .cmd/.bat otherwise).
+  // Use a single pre-built command string to avoid DEP0190 (shell + args
+  // array is deprecated). Args are static literals — no injection risk.
+  const isWindows = process.platform === "win32";
+  const npmCmd = isWindows ? "npm.cmd" : "npm";
+  const installArgs = "install --omit=dev --no-audit --no-fund";
+  const result = isWindows
+    ? spawnSync(`${npmCmd} ${installArgs}`, {
+        cwd: env.PLUGIN_DATA,
+        stdio: ["ignore", "inherit", "inherit"],
+        env: process.env,
+        shell: true,
+      })
+    : spawnSync(npmCmd, installArgs.split(" "), {
+        cwd: env.PLUGIN_DATA,
+        stdio: ["ignore", "inherit", "inherit"],
+        env: process.env,
+      });
 
   if (result.error) {
     log(

@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.7.1 — 2026-04-18
+
+### Fixed
+- Plugin installer no longer fails on Windows with `spawnSync npm.cmd EINVAL`. Node 18.20.2+ / 20.12.2+ (CVE-2024-27980 mitigation) requires `shell: true` when spawning `.cmd`/`.bat` files. Passing args are static literals so there is no injection risk.
+
 ## 1.7.0 — 2026-04-18
 
 ### Added
