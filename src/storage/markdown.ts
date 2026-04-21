@@ -30,12 +30,20 @@ function generateId(): string {
 
 function formatTime(): string {
   const now = new Date();
-  return now.toTimeString().slice(0, 5); // HH:MM
+  return now.toTimeString().slice(0, 5); // HH:MM in local tz
 }
 
 function formatDate(): string {
+  // MUST match the timezone used by `formatTime()` — local. Previously used
+  // `toISOString()` (UTC), which diverged from the local HH:MM any time an
+  // entry was created across UTC midnight: the UTC date had already rolled
+  // to tomorrow while local time was still today's 22:xx — producing a
+  // fictional "2026-04-21 22:36" pair that parses as a future wall time.
   const now = new Date();
-  return now.toISOString().slice(0, 10); // YYYY-MM-DD
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 export interface AppendEntryMeta {

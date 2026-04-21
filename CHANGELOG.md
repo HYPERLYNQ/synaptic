@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.7.4 — 2026-04-21
+
+### Fixed
+- `formatDate()` used UTC while `formatTime()` used local tz, producing date/time pairs that diverged whenever an entry was created during the few hours when local is "yesterday evening" but UTC has rolled to "tomorrow". Concretely: a checkpoint created at 22:36 EDT (02:36 UTC next day) was stored as `date=2026-04-21` + `time=22:36`, a fictional future wall time. `/list-checkpoints` rendered that as "~22h ago". Now both functions use local tz, so the pair is always internally consistent, and `createdAtUtc` (added in 1.7.3) derives a correct UTC timestamp from it.
+
+### Notes
+- This completes the time-display fix started in 1.7.3. 1.7.3 shipped `createdAtUtc` as a derived field but it was computed from the already-broken `date`+`time` pair, so it inherited the same inconsistency. Entries created by any 1.7.4 machine are internally coherent going forward. Pre-1.7.4 entries with divergent pairs stay as-is (cosmetic only — data is intact).
+
 ## 1.7.3 — 2026-04-21
 
 ### Fixed
