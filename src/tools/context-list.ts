@@ -46,6 +46,10 @@ interface GroupedEntries {
     // ISO8601 UTC timestamp so the agent can compute accurate relative
     // time ("2h ago") without having to interpret date + local-tz time.
     createdAtUtc?: string;
+    // Pre-computed human-friendly relative-time label (e.g. "1h ago",
+    // "yesterday"). Populated server-side so rendering doesn't depend on
+    // the agent's own notion of "now", which has proven unreliable.
+    timeAgo?: string;
   }>;
 }
 
@@ -71,6 +75,7 @@ export function contextList(
       group = { date: entry.date, entries: [] };
       grouped.set(entry.date, group);
     }
+    const createdAtUtc = createdAtUtcFor(entry.date, entry.time);
     group.entries.push({
       id: entry.id,
       time: entry.time,
@@ -80,9 +85,8 @@ export function contextList(
       ...(entry.name ? { name: entry.name } : {}),
       ...(entry.summary ? { summary: entry.summary } : {}),
       ...(entry.projectRoot ? { projectRoot: entry.projectRoot } : {}),
-      ...(createdAtUtcFor(entry.date, entry.time)
-        ? { createdAtUtc: createdAtUtcFor(entry.date, entry.time) }
-        : {}),
+      ...(createdAtUtc ? { createdAtUtc } : {}),
+      ...(createdAtUtc ? { timeAgo: timeAgoLabel(createdAtUtc) } : {}),
     });
   }
 
@@ -103,4 +107,58 @@ function createdAtUtcFor(date: string, time: string): string | undefined {
   if (!normalizedTime) return undefined;
   const d = new Date(`${date}T${normalizedTime}`);
   return Number.isNaN(d.getTime()) ? undefined : d.toISOString();
+}
+
+/**
+ * Turn an ISO8601 timestamp into a short human label relative to `now`.
+ * Computed server-side because agent-side arithmetic against raw
+ * timestamps was producing "yesterday" for entries ~1 hour old —
+ * presumably due to the agent's cached notion of "now" drifting or its
+ * rendering heuristic binning short durations into coarse buckets.
+ * Pre-computing sidesteps that entirely.
+ *
+ * Thresholds:
+ *   < 60s                        → "just now"
+ *   < 1h                         → "Nmin ago"
+ *   < 24h                        → "Nh ago"
+ *   < 48h AND previous local day → "yesterday"
+ *   < 7d                         → "Nd ago"
+ *   otherwise                    → ISO date (YYYY-MM-DD)
+ *
+ * Future timestamps (badly-stored entries, clock skew) return "in the
+ * future" rather than silently going negative.
+ */
+export function timeAgoLabel(iso: string, now: Date = new Date()): string {
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return "unknown";
+  const diffMs = now.getTime() - t;
+  if (diffMs < 0) return "in the future";
+  const diffSec = Math.floor(diffMs / 1000);
+  if (diffSec < 60) return "just now";
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin}min ago`;
+
+  // For anything >= 1h, consult LOCAL calendar dates first. This keeps
+  // "yesterday" meaningful when an entry fell on the previous local day
+  // even if the raw duration is only 14-16h, and keeps short today-ago
+  // durations as "Nh ago" instead of "yesterday".
+  const then = new Date(t);
+  const sameLocalDate = (a: Date, b: Date) =>
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate();
+  if (sameLocalDate(then, now)) {
+    const diffHr = Math.floor(diffMin / 60);
+    return `${diffHr}h ago`;
+  }
+  const yesterday = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate() - 1
+  );
+  if (sameLocalDate(then, yesterday)) return "yesterday";
+
+  const diffDay = Math.floor(diffMin / 60 / 24);
+  if (diffDay < 7) return `${diffDay}d ago`;
+  return iso.slice(0, 10); // fall back to YYYY-MM-DD
 }
