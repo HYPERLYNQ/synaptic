@@ -30,8 +30,12 @@ const LENGTH_NORM_CHARS = 500;
 
 function projectMatch(entry: RankInput, currentRoot: string | null): number {
   if (!currentRoot) return 0;
-  if (entry.projectRoot && entry.projectRoot === currentRoot) return 1.0;
-  const basename = currentRoot.split("/").filter(Boolean).pop() ?? "";
+  // Normalize both sides to handle Windows mixed-separator spellings
+  // (e.g. "D:/foo" vs "D:\\foo") which otherwise fail exact equality.
+  const normRoot = currentRoot.replace(/\\/g, "/");
+  const normEntry = entry.projectRoot ? entry.projectRoot.replace(/\\/g, "/") : "";
+  if (normEntry && normEntry === normRoot) return 1.0;
+  const basename = normRoot.split("/").filter(Boolean).pop() ?? "";
   if (!basename) return 0;
   if (entry.tags.includes(basename)) return 0.3;
   return 0;
