@@ -37,7 +37,7 @@ export interface SyncState {
   remoteCursors: Record<string, number>; // machineId -> line count processed
 }
 
-interface SyncableEntry {
+export interface SyncableEntry {
   id: string;
   date: string;
   time: string;
@@ -49,6 +49,18 @@ interface SyncableEntry {
   project: string | null;
   sessionId: string | null;
   agentId: string | null;
+  // v1.7.3+ fields. Older readers ignore these transparently.
+  // `projectRoot` is required for `listCheckpoints` project filtering, and
+  // `name`/`summary` are what `/list-checkpoints` displays per row. Without
+  // them, cross-machine checkpoints arrive invisible to the listing query.
+  projectRoot?: string | null;
+  name?: string | null;
+  summary?: string | null;
+  referencedEntryIds?: string[];
+  // Unambiguous ISO8601 UTC timestamp so consumers can render relative time
+  // without guessing the timezone of the creating machine (date + time are
+  // stored as local-tz strings for historical reasons).
+  createdAtUtc?: string;
 }
 
 // --- State management ---
@@ -407,7 +419,11 @@ export async function getGhUsername(): Promise<string> {
 
 // --- Conversion helpers ---
 
-function toSyncable(entry: ContextEntry): SyncableEntry {
+export function toSyncable(entry: ContextEntry): SyncableEntry {
+  // Compose an ISO8601 UTC timestamp from the local date+time on this machine.
+  // Consumers on other machines can use this instead of re-parsing the
+  // timezone-naive date/time pair.
+  const createdAtUtc = safeIsoTimestamp(entry.date, entry.time);
   return {
     id: entry.id,
     date: entry.date,
@@ -420,10 +436,15 @@ function toSyncable(entry: ContextEntry): SyncableEntry {
     project: entry.project ?? null,
     sessionId: entry.sessionId ?? null,
     agentId: entry.agentId ?? null,
+    projectRoot: entry.projectRoot ?? null,
+    name: entry.name ?? null,
+    summary: entry.summary ?? null,
+    referencedEntryIds: entry.referencedEntryIds ?? [],
+    ...(createdAtUtc ? { createdAtUtc } : {}),
   };
 }
 
-function fromSyncable(s: SyncableEntry): ContextEntry {
+export function fromSyncable(s: SyncableEntry): ContextEntry {
   return {
     id: s.id,
     date: s.date,
@@ -437,5 +458,28 @@ function fromSyncable(s: SyncableEntry): ContextEntry {
     project: s.project,
     sessionId: s.sessionId,
     agentId: s.agentId,
+    // Pass through v1.7.3+ fields when the source entry included them.
+    // Older machines' entries won't have these — we leave them undefined so
+    // the SQLite insert writes NULL, same as before.
+    ...(s.projectRoot != null ? { projectRoot: s.projectRoot } : {}),
+    ...(s.name != null ? { name: s.name } : {}),
+    ...(s.summary != null ? { summary: s.summary } : {}),
+    ...(s.referencedEntryIds && s.referencedEntryIds.length > 0
+      ? { referencedEntryIds: s.referencedEntryIds }
+      : {}),
   };
+}
+
+/**
+ * Best-effort ISO8601 conversion from the local-tz date+time strings stored
+ * on entries. Returns undefined if the pair can't be parsed — the receiver
+ * will fall back to the raw date/time like before.
+ */
+function safeIsoTimestamp(date: string, time: string): string | undefined {
+  // Accept either "HH:MM" or "HH:MM:SS"; normalize to "HH:MM:SS".
+  const normalizedTime =
+    time.length === 5 ? `${time}:00` : time.length === 8 ? time : null;
+  if (!normalizedTime) return undefined;
+  const d = new Date(`${date}T${normalizedTime}`);
+  return Number.isNaN(d.getTime()) ? undefined : d.toISOString();
 }

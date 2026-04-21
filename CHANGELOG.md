@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.7.3 — 2026-04-21
+
+### Fixed
+- **Sync was silently dropping `projectRoot`, `name`, `summary`, and `referencedEntryIds`** from entries as they crossed between machines. The `SyncableEntry` wire format only carried the original pre-v1.5 column set; the `name` and `projectRoot` columns added for checkpoints in v1.5 were never added to the serializer. On receiving machines, synced checkpoints arrived with `project_root=NULL`, which meant `listCheckpoints` (and `/list-checkpoints`) filtered them all out because it scopes by `project_root = <current cwd>`. Result: cross-machine checkpoints were invisible.
+- `context_list` tool now returns `name`, `summary`, `projectRoot`, and an ISO8601 UTC `createdAtUtc` on each entry. Previously it stripped these fields before returning to the agent, which forced `/list-checkpoints` to synthesize display names from content substrings and guess relative times from timezone-naive `date`+`time` strings.
+- `/list-checkpoints` slash command is now instructed to use `createdAtUtc` for relative-time calculations instead of reconstructing a timestamp from the local-tz `date`+`time` pair, which was producing wildly wrong "X hours ago" values across machines in different timezones.
+
+### Compatibility
+- Pre-v1.7.3 entries already in a sync repo will still arrive with the new fields missing; receivers tolerate them as undefined. Once any machine in the sync group upgrades to v1.7.3, newly created entries from that machine will carry full fidelity. No migration required.
+- Wire format remains forward and backward compatible: older readers ignore the new optional fields, newer readers treat them as optional.
+
 ## 1.7.2 — 2026-04-18
 
 ### Fixed

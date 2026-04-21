@@ -37,6 +37,15 @@ interface GroupedEntries {
     type: string;
     tags: string[];
     content: string;
+    // Checkpoint-oriented display fields — previously stripped before
+    // returning to the agent, which forced /list-checkpoints to extract
+    // human-readable names from content substrings.
+    name?: string;
+    summary?: string;
+    projectRoot?: string;
+    // ISO8601 UTC timestamp so the agent can compute accurate relative
+    // time ("2h ago") without having to interpret date + local-tz time.
+    createdAtUtc?: string;
   }>;
 }
 
@@ -68,6 +77,12 @@ export function contextList(
       type: entry.type,
       tags: entry.tags,
       content: entry.content,
+      ...(entry.name ? { name: entry.name } : {}),
+      ...(entry.summary ? { summary: entry.summary } : {}),
+      ...(entry.projectRoot ? { projectRoot: entry.projectRoot } : {}),
+      ...(createdAtUtcFor(entry.date, entry.time)
+        ? { createdAtUtc: createdAtUtcFor(entry.date, entry.time) }
+        : {}),
     });
   }
 
@@ -75,4 +90,17 @@ export function contextList(
     groups: Array.from(grouped.values()),
     total: entries.length,
   };
+}
+
+/**
+ * Best-effort ISO8601 UTC timestamp from the stored date + local-tz time.
+ * Kept inline here (mirroring sync.ts' safeIsoTimestamp) so context-list
+ * doesn't force a storage-layer dependency on the time-format helper.
+ */
+function createdAtUtcFor(date: string, time: string): string | undefined {
+  const normalizedTime =
+    time.length === 5 ? `${time}:00` : time.length === 8 ? time : null;
+  if (!normalizedTime) return undefined;
+  const d = new Date(`${date}T${normalizedTime}`);
+  return Number.isNaN(d.getTime()) ? undefined : d.toISOString();
 }
