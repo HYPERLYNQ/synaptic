@@ -30,7 +30,8 @@
     "test:search": "npm run build && node build/scripts/test-search.js",
     "test:cleanup": "npm run build && node build/scripts/test-cleanup.js",
     "test:all": "vitest run && npm run build && node build/scripts/smoke-test.js && node build/scripts/test-search.js && node build/scripts/test-cleanup.js",
-    "prepublishOnly": "npm run build && node scripts/sync-plugin-version.cjs"
+    "version": "node scripts/sync-plugin-version.cjs --write && git add .claude-plugin/plugin.json",
+    "prepublishOnly": "npm run build && node scripts/sync-plugin-version.cjs --write"
   },
   "keywords": [
     "claude",
