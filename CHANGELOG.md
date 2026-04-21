@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.7.5 — 2026-04-21
+
+### Fixed
+- `context_list` tool now returns a pre-computed `timeAgo` string per checkpoint (e.g. `"1h ago"`, `"yesterday"`, `"in the future"`). The `/list-checkpoints` slash command now renders this verbatim instead of doing its own math against `createdAtUtc`. v1.7.4 emitted a correct `createdAtUtc` but the agent's own "X ago" arithmetic was still mis-rendering short durations as "yesterday", for reasons that look like a cached notion of "now" on the agent side. Pre-computing server-side sidesteps it entirely.
+- `timeAgo` reports `"in the future"` instead of silently producing a negative duration when a pre-1.7.4 entry has a mis-stored date/time pair that derives to a future timestamp.
+
+### Notes
+- 9 new tests in `tests/tools/time-ago-label.test.ts` cover just-now, minutes, hours, yesterday-semantics, multi-day, past-7d fallback, future timestamps, and unparseable input.
+
 ## 1.7.4 — 2026-04-21
 
 ### Fixed

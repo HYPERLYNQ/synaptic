@@ -1,6 +1,6 @@
 {
   "name": "@hyperlynq/synaptic",
-  "version": "1.7.4",
+  "version": "1.7.5",
   "description": "Persistent local memory for Claude Code — cross-session context recall, semantic search, zero cloud",
   "type": "module",
   "main": "build/src/index.js",
