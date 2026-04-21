@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.7.6 — 2026-04-21
+
+### Fixed
+- `listCheckpoints` did exact string-match on `project_root`, which broke cross-install and cross-platform spellings on Windows. `git rev-parse --show-toplevel` emits forward slashes (`D:/Coding/hotship`) while native Windows APIs, PowerShell expansions, and manual DB inserts often use backslashes (`D:\Coding\hotship`). Same path, different string → zero matches. Now normalized to forward slashes before comparison on both query and stored value, so spellings interchange freely.
+- `listCheckpoints` now also falls back to matching by the `project` basename column when `project_root` is NULL. This surfaces pre-v1.7.3 synced entries whose `project_root` was dropped by the old sync serializer — users can load them again after upgrading without needing a DB migration.
+- `detectProjectRoot()` in `lib/project-root.ts` now returns its output normalized to forward slashes, so anything written downstream (hook-saved entries, scoring comparisons) is canonical at the source.
+- `scoring.ts` `projectMatch()` normalizes both sides before comparing, so entries from cross-install spellings still contribute to recall scoring.
+
+### Notes
+- Wire format unchanged; no migration needed. Existing mixed-separator entries in a DB work out of the box — the normalized comparison handles them. New entries created on v1.7.6 all store forward-slash paths.
+- 7 new tests in `tests/storage/list-checkpoints-path-match.test.ts` covering forward↔backslash equivalence, basename fallback for NULL project_root, and correct rejection of unrelated projects that happen to share a basename.
+
 ## 1.7.5 — 2026-04-21
 
 ### Fixed

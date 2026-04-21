@@ -1415,8 +1415,23 @@ export class ContextIndex {
     const params: (string | number)[] = [];
     let sql = "SELECT * FROM entries WHERE type = 'checkpoint' AND archived = 0";
     if (opts.projectRoot) {
-      sql += " AND project_root = ?";
-      params.push(opts.projectRoot);
+      // Two-tier match so legacy and mixed-separator entries still surface:
+      //   1. Normalized project_root equality — converts stored backslashes
+      //      to forward slashes before comparing, so 'D:\\foo' matches
+      //      'D:/foo'. Handles mixed-separator state from pre-v1.7.6 DBs
+      //      and cross-install path spellings on Windows.
+      //   2. Basename fallback — entries synced by pre-v1.7.3 machines
+      //      land with NULL project_root (the sync-drops-columns bug).
+      //      They retained the `project` column (basename). If that
+      //      matches the basename of the incoming projectRoot, include
+      //      them so a user who saved a checkpoint on the old format can
+      //      still load it after upgrading.
+      sql +=
+        " AND (REPLACE(project_root, '\\', '/') = ? OR " +
+        "(project_root IS NULL AND project = ?))";
+      const normalized = opts.projectRoot.replace(/\\/g, "/");
+      const basename = normalized.split("/").filter(Boolean).pop() ?? normalized;
+      params.push(normalized, basename);
     }
     sql += " ORDER BY date DESC, time DESC LIMIT ?";
     params.push(limit);
