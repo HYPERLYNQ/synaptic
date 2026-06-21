@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.7.7 — 2026-06-21
+
+### Fixed
+- **sync:** push no longer crashes with `RangeError: Invalid time value`. `pushEntries` filtered every entry through an unguarded `new Date(`${e.date}T${e.time}:00`).toISOString()`. A seconds-precision `HH:MM:SS` time — which legitimately enters the local index when pulled from another machine, since `fromSyncable` copies `time` verbatim — produced a malformed `…:SS:00` string → Invalid Date → the throw happened *inside* the `.filter()`, aborting the **entire** push. A single such entry silently stalled all outbound sync (observed: ~2 months frozen on a machine that had pulled one). The filter now routes through the existing `safeIsoTimestamp` helper and **includes** entries whose timestamp can't be parsed (dedup-by-ID downstream prevents duplicates, so nothing is lost or double-pushed).
+- **sync:** `safeIsoTimestamp` hardened with a leading type guard so it never throws on non-string `date`/`time` (e.g. NULLs from the DB) before the `.length` check.
+
+### Notes
+- Root cause predates the 1.x line: the unguarded push parse and the verbatim 8-char-time flow have coexisted since at least 1.0.0. `safeIsoTimestamp` was added in 1.7.3 (for `createdAtUtc`) but the push filter never adopted it, so the bug survived through 1.7.6.
+- Version hygiene: realigned `plugin.json` (had drifted to 1.7.4) and `marketplace.json` (1.7.2) back to the package version.
+- 2 new regression tests in `tests/storage/sync-push-time-guard.test.ts` cover 8-char `HH:MM:SS` and normal `HH:MM` times through the push filter.
+- Wire format unchanged; no migration needed.
+
 ## 1.7.6 — 2026-04-21
 
 ### Fixed

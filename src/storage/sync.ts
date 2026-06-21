@@ -119,8 +119,12 @@ export async function pushEntries(
   // Query entries newer than lastPushAt
   const allEntries = state.lastPushAt
     ? index.list({ includeArchived: false }).filter(e => {
-        const entryTs = new Date(`${e.date}T${e.time}:00`).toISOString();
-        return entryTs > state.lastPushAt!;
+        // Guard against malformed date/time (e.g. seconds-precision "HH:MM:SS"
+        // times pulled from another machine): one bad entry must not abort the
+        // whole push via RangeError. Unparseable → include it; dedup-by-ID
+        // downstream prevents duplicates, and we must never silently drop entries.
+        const entryTs = safeIsoTimestamp(e.date, e.time);
+        return entryTs == null ? true : entryTs > state.lastPushAt!;
       })
     : index.list({ includeArchived: false });
 
@@ -476,6 +480,10 @@ export function fromSyncable(s: SyncableEntry): ContextEntry {
  * will fall back to the raw date/time like before.
  */
 function safeIsoTimestamp(date: string, time: string): string | undefined {
+  // Runtime values can violate these string types (DB/JSON nulls), so guard
+  // before touching .length — this helper must never throw.
+  if (typeof date !== "string" || !date || typeof time !== "string")
+    return undefined;
   // Accept either "HH:MM" or "HH:MM:SS"; normalize to "HH:MM:SS".
   const normalizedTime =
     time.length === 5 ? `${time}:00` : time.length === 8 ? time : null;
